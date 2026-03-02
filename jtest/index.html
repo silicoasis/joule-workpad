@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WorkPad</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script type="module" src="../library/joule/index.js"></script>
+</head>
+<body>
+
+  <joule-panel
+    background="/library/joule/assets/35389364ed5382f2923bdedaa0c96a0ce997bed2.svg">
+
+    <!-- header slot — 3013:83762 -->
+    <joule-header slot="header" title="Pay Stub Issues"></joule-header>
+
+    <!-- content slot — 3013:83766 -->
+    <joule-conversation-canvas slot="content" id="canvas"></joule-conversation-canvas>
+
+    <!-- message-input slot — 3013:83765 -->
+    <joule-message-input
+      slot="message-input"
+      id="input"
+      placeholder="Message with Performance Assistant ..."
+      mention="@performance-assistant">
+    </joule-message-input>
+
+    <!-- disclaimer slot — 3013:83768 -->
+    <joule-disclaimer slot="disclaimer"></joule-disclaimer>
+
+  </joule-panel>
+
+  <script type="module">
+    /* Wait for custom elements to be defined before wiring events */
+    await Promise.all([
+      customElements.whenDefined('joule-conversation-canvas'),
+      customElements.whenDefined('joule-message-input'),
+    ]);
+
+    const canvas = document.getElementById('canvas');
+    const input  = document.getElementById('input');
+
+    /* Clicking the conversation canvas collapses the input (if expanded) */
+    canvas.addEventListener('click', () => {
+      input.collapse();
+    });
+
+    /**
+     * Handle joule-send event:
+     * 1. Add user bubble
+     * 2. Show loading animation (300ms simulated latency)
+     * 3. Stream the mocked 8-line response word-by-word
+     */
+    document.addEventListener('joule-send', async (e) => {
+      const { text, mention } = e.detail ?? {};
+      if (!text?.trim()) return;
+
+      /* 1 — render user bubble */
+      canvas.addUserMessage(text, mention);
+
+      /* 2 — show loading dots with brief latency */
+      canvas.showLoading('Performance Assistant is thinking ...');
+      await new Promise((r) => setTimeout(r, 600));
+
+      /* 3 — route response by keyword */
+      const cmd = text.trim().toLowerCase();
+      if (cmd === 'code') {
+        await canvas.streamCodeResponse();
+      } else if (cmd === 'table') {
+        await canvas.streamTableResponse();
+      } else {
+        await canvas.streamResponse();
+      }
+    });
+  </script>
+
+</body>
+</html>

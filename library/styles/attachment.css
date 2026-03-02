@@ -1,0 +1,573 @@
+/* Attachment Library Styles */
+
+/* Global styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: '72', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f5f5f5;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+}
+
+/* SAP Icon Font */
+@font-face {
+    font-family: 'SAP-icons';
+    src: url('https://sapui5.hana.ondemand.com/resources/sap/ui/core/themes/sap_horizon/fonts/SAP-icons.woff2') format('woff2'),
+         url('https://sapui5.hana.ondemand.com/resources/sap/ui/core/themes/sap_horizon/fonts/SAP-icons.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+}
+
+/* Chat Container */
+.chat-container {
+    width: 416px;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0px 0px 2px 0px rgba(91,115,139,0.16), 0px 32px 64px 0px rgba(91,115,139,0.16);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+}
+
+/* Header styles */
+.panel-header {
+    background: linear-gradient(135deg, #5d36ff, #6431fa);
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+    color: white;
+}
+
+.header-title {
+    display: flex;
+    align-items: center;
+    flex: 1;
+}
+
+.header-button {
+    background: rgba(255,255,255,0);
+    border: 1px solid rgba(255,255,255,0);
+    border-radius: 8px;
+    padding: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    color: white;
+}
+
+.header-button:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.menu-button {
+    margin-right: 8px;
+}
+
+.toolbar-button {
+    width: 36px;
+}
+
+.title-text {
+    font-weight: 700;
+    font-size: 16px;
+}
+
+.toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* Content area styles */
+.content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px 0;
+    overflow-y: auto;
+    max-height: 400px;
+}
+
+.timestamp {
+    text-align: center;
+    padding: 0 16px;
+    font-size: 14px;
+    color: #8396a8;
+    line-height: 20px;
+}
+
+.timestamp-bold {
+    font-weight: 700;
+}
+
+/* Message styles */
+.message-container {
+    padding: 0 16px;
+}
+
+.user-message {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
+}
+
+.user-message-bubble {
+    background: #eae5ff;
+    border: 1px solid #eae5ff;
+    border-radius: 8px;
+    padding: 8px 16px;
+    max-width: 268px;
+    font-size: 14px;
+    color: #1d2d3e;
+    line-height: 21px;
+}
+
+.joule-message {
+    display: flex;
+    justify-content: flex-start;
+    margin-bottom: 10px;
+}
+
+.joule-message-bubble {
+    background: #eff1f2;
+    border: 1px solid #eff1f2;
+    border-radius: 8px;
+    padding: 8px 16px;
+    max-width: 384px;
+    width: 100%;
+    font-size: 14px;
+    color: #1d2d3e;
+    line-height: 21px;
+}
+
+/* Input field styles */
+.input-field {
+    padding: 16px;
+}
+
+/* Disclaimer styles */
+.disclaimer {
+    padding: 4px 16px 16px;
+    text-align: center;
+    font-size: 11px;
+    color: #32363a;
+    line-height: 12px;
+}
+
+/* Icons */
+.icon::before {
+    font-size: 16px;
+}
+.icon-menu::before { content: "☰"; }
+.icon-overflow::before { content: "⋯"; }
+.icon-fullscreen::before { content: "⛶"; }
+.icon-close::before { content: "✕"; }
+.icon-attachment::before { content: "📎"; }
+.sap-icon--attachment::before { content: "\e04a"; }
+.icon-send::before { content: "➤"; color: white; }
+.icon-clear::before { content: "🗑"; }
+.icon-delete::before { content: "✕"; opacity: 0.6; }
+.icon-file::before { content: "📄"; }
+
+/* SAP Icons */
+.sap-icon {
+    font-family: 'SAP-icons';
+    font-size: 16px;
+    display: inline-block;
+    font-weight: normal;
+    font-style: normal;
+    speak: none;
+    text-decoration: inherit;
+    text-transform: none;
+    text-rendering: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+.sap-icon--attachment::before { content: "\e04a"; }
+.sap-icon--accept::before { content: "\e05b"; }
+.sap-icon--decline::before { content: "\e03e"; opacity: 0.6; }
+.sap-icon--paper-plane::before { content: "\e0cc"; }
+.sap-icon--pdf-attachment::before { content: "\e05b"; }
+.sap-icon--excel-attachment::before { content: "\e05b"; }
+.sap-icon--picture::before { content: "\e05b"; }
+.sap-icon--doc-attachment::before { content: "\e05b"; }
+.sap-icon--document-text::before { content: "\e05b"; }
+
+/* Attachment icon styling */
+.attachment-icon {
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+    position: relative;
+    color: #0854a0; /* sapButton_Lite_TextColor */
+}
+
+.attachment-icon:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.attachment-icon:focus {
+    outline: 2px solid #0070f3;
+    outline-offset: 2px;
+}
+
+/* File count indicator on attachment icon */
+.input-elements {
+    position: relative;
+}
+
+.file-count-indicator {
+    position: absolute;
+    top: -8px;
+    left: 16px;
+    background: #0070f3;
+    color: white;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+
+/* Send button active state */
+.send-button.active {
+    opacity: 1;
+    cursor: pointer;
+}
+
+.send-button:not(.active) {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Drag and drop styles */
+.input-area.drag-over {
+    background-color: rgba(0, 112, 243, 0.1);
+    border: 2px dashed #0070f3;
+    border-radius: 8px;
+}
+
+/* File list visibility and container styling */
+.file-list {
+    display: block;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 8px;
+    padding: 8px 0;
+}
+
+.file-list:empty {
+    display: none;
+}
+
+/* Input area container styling to match reference */
+.input-area {
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 12px;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* File items styling to match reference */
+.file-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    margin: 0;
+    border: none;
+    background: transparent;
+    transition: background-color 0.2s ease;
+}
+
+.file-item:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.file-item.selected {
+    background-color: #eaecee;
+}
+
+/* File item content */
+.file-leading {
+    margin-right: 12px;
+}
+
+.file-text-container {
+    flex: 1;
+    margin: 0;
+}
+
+.file-text-container p {
+    margin: 0;
+    font-size: 14px;
+    color: #333;
+}
+
+.file-trailing {
+    margin-left: 12px;
+}
+
+/* Input elements positioning */
+.input-elements {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.text-input {
+    flex: 1;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    resize: none;
+    outline: none;
+}
+
+.text-input p {
+    margin: 0;
+    line-height: 1.4;
+}
+
+.input-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* File item hover effects - removed duplicate rules */
+
+/* File delete button hover */
+.file-delete-container {
+    transition: all 0.2s ease;
+    cursor: pointer;
+    opacity: 0.6;
+}
+
+.file-delete-container:hover {
+    opacity: 1;
+    color: #ff4444;
+    transform: scale(1.1);
+}
+
+/* Error notification styles */
+.attachment-error {
+    animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Loading states */
+.file-item.uploading {
+    opacity: 0.7;
+    position: relative;
+}
+
+.file-item.uploading::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+/* File type specific icons */
+.file-icon-container .sap-icon {
+    font-size: 16px;
+}
+
+.file-icon-container .sap-icon--pdf-attachment {
+    color: #ff4444 !important;
+}
+
+.file-icon-container .sap-icon--doc-attachment {
+    color: #2b579a !important;
+}
+
+.file-icon-container .sap-icon--excel-attachment {
+    color: #217346 !important;
+}
+
+.file-icon-container .sap-icon--picture {
+    color: #ff6b35 !important;
+}
+
+.file-icon-container .sap-icon--document-text {
+    color: #666666 !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .file-count-indicator {
+        width: 18px;
+        height: 18px;
+        font-size: 11px;
+        top: -6px;
+        right: -6px;
+    }
+    
+    .file-list {
+        max-height: 150px;
+    }
+}
+
+/* Accessibility improvements */
+.attachment-button:focus {
+    outline: 2px solid #0070f3;
+    outline-offset: 2px;
+}
+
+.file-delete-container:focus {
+    outline: 2px solid #ff4444;
+    outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .file-count-indicator {
+        border: 2px solid white;
+    }
+    
+    .file-item.selected {
+        border-left-width: 4px;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .file-delete-container,
+    .file-item,
+    .attachment-error {
+        transition: none;
+    }
+    
+    .file-item.uploading::after {
+        animation: none;
+    }
+    
+    @keyframes slideInRight {
+        from, to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+}
+
+/* Chat-specific overrides */
+.chat-container .input-area {
+    border: 1px solid #0064d9;
+    box-shadow: 0px 0px 2px 0px rgba(27,144,255,0.16), 0px 4px 8px 0px rgba(27,144,255,0.16);
+    border-radius: 8px;
+    padding: 8px 0;
+}
+
+.chat-container .file-list {
+    max-height: 200px;
+    padding: 0;
+    margin-bottom: 0;
+}
+
+.chat-container .file-item.selected {
+    background: #eaecee;
+}
+
+.chat-container .input-elements {
+    border-top: 1px solid #e9e9e9;
+    padding: 8px;
+    margin-top: 0;
+}
+
+.chat-container .text-input {
+    min-height: 240px;
+    font-size: 14px;
+    color: #131e29;
+    line-height: 20px;
+    padding: 0 8px;
+}
+
+.chat-container .input-actions {
+    flex-direction: column;
+    gap: 4px;
+}
+
+.chat-container .clear-button {
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6;
+}
+
+.chat-container .clear-button:hover {
+    opacity: 1;
+}
+
+.chat-container .send-button {
+    background: #0070f2;
+    border: 1px solid #0070f2;
+    border-radius: 24px;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.chat-container .send-button:hover {
+    background: #0051cc;
+}
+
+/* Ensure SAP icon in send button is white for visibility and centered */
+.chat-container .send-button .sap-icon {
+    color: white !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}

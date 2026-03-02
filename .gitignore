@@ -1,0 +1,15 @@
+# Ignore everything at this level except the tracked projects
+*
+.DS_Store
+
+# Track only jtest app and shared component library
+!.gitignore
+!README.md
+!jtest/
+!jtest/**
+!library/
+!library/**
+
+# Always ignore macOS metadata everywhere
+**/.DS_Store
+.DS_Store

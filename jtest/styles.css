@@ -1,0 +1,25 @@
+/* ── design tokens ── */
+:root {
+  --sapBaseColor: #ffffff;
+  --sapAssistant_Background: #5d36ff;
+  --sapAssistant_BorderColor: #5d36ff;
+  --sapButton_BorderWidth: 1px;
+  --sapContent_DisabledOpacity: 0.4;
+}
+
+/* ── reset ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── page shell ── */
+html, body {
+  height: 100%;
+  background: #e8ecf0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}

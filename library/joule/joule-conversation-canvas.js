@@ -1,3 +1,46 @@
+/* mermaid — lazy-loaded for flowchart/diagram rendering in code blocks                  */
+let _mermaidLib = null;
+let _mermaidInit = false;
+async function _getMermaid() {
+  if (_mermaidLib) return _mermaidLib;
+  try {
+    const m = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
+    _mermaidLib = m.default;
+    if (!_mermaidInit) {
+      _mermaidLib.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+      _mermaidInit = true;
+    }
+  } catch (e) {
+    console.warn('[canvas] mermaid unavailable — diagram blocks will be unstyled', e.message);
+    _mermaidLib = null;
+  }
+  return _mermaidLib;
+}
+
+/* Render all mermaid code blocks in a container as SVG diagrams */
+async function _renderMermaidBlocks(container) {
+  const mermaid = await _getMermaid();
+  if (!mermaid) return;
+  const blocks = container.querySelectorAll('pre code.language-mermaid');
+  for (let i = 0; i < blocks.length; i++) {
+    const codeEl = blocks[i];
+    const pre = codeEl.parentElement;
+    const diagramText = codeEl.textContent.trim();
+    if (!diagramText) continue;
+    try {
+      const id = `mmd-${Date.now()}-${i}`;
+      const { svg } = await mermaid.render(id, diagramText);
+      const wrapper = document.createElement('div');
+      wrapper.className = 'mermaid-diagram';
+      wrapper.innerHTML = svg;
+      pre.replaceWith(wrapper);
+    } catch (err) {
+      console.warn('[canvas] mermaid render failed', err.message);
+      /* leave the fenced code block in place on error */
+    }
+  }
+}
+
 /* highlight.js — lazy-loaded for multi-language syntax highlighting in code blocks       */
 let _hljsLib = null;
 async function _getHljs() {
@@ -744,9 +787,10 @@ class JouleConversationCanvas extends HTMLElement {
     /* Preload both libs concurrently before streaming starts — cached after first call */
     const [md, hljs] = await Promise.all([_getMarked(), _getHljs()]);
 
-    /* Helper: highlight all <pre><code> blocks inside a container */
+    /* Helper: highlight all <pre><code> blocks inside a container
+       — skip mermaid blocks (those get rendered as SVG diagrams instead) */
     const _applyHljs = (container) => {
-      container.querySelectorAll('pre code:not(.hljs)').forEach((el) => {
+      container.querySelectorAll('pre code:not(.hljs):not(.language-mermaid)').forEach((el) => {
         try { hljs.highlightElement(el); } catch { /* ignore */ }
       });
     };
@@ -783,6 +827,9 @@ class JouleConversationCanvas extends HTMLElement {
 
     /* Final syntax highlighting pass */
     _applyHljs(responseDiv);
+
+    /* Render any mermaid diagrams (flowcharts, sequences, etc.) */
+    await _renderMermaidBlocks(responseDiv);
 
     const actions = document.createElement('joule-response-actions');
     messageRow.appendChild(actions);

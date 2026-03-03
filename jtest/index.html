@@ -93,13 +93,14 @@
        Run:  node jtest/hai-relay.js   (before starting the app)
        Falls back to mock responses when relay/proxy is unavailable.        */
     const HAI = {
-      url:    'http://localhost:6656',      // CORS relay (hai-relay.js)
-      apiKey: '14615e0f-2fcb-4bb1-8b0a-4fd166743715',
-      model:  'anthropic--claude-4.5-haiku',
+      url:       'http://localhost:6656',      // CORS relay (hai-relay.js)
+      agentUrl:  'http://localhost:6657/agent', // web-agent.js (DuckDuckGo + HAI)
+      apiKey:    '14615e0f-2fcb-4bb1-8b0a-4fd166743715',
+      model:     'anthropic--claude-4.5-haiku',
     };
 
     /**
-     * Call the HAI proxy and return the response text.
+     * Call the HAI proxy directly (no web search).
      * Throws if the proxy is unreachable or returns an error.
      */
     async function callHAI(userText) {
@@ -111,18 +112,38 @@
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model:     HAI.model,
+          model:      HAI.model,
           max_tokens: 1024,
           system: 'You are Joule, SAP\'s AI assistant. Be helpful, concise, and professional. ' +
                   'Use markdown formatting where appropriate: headings, bold, lists, code blocks, tables.',
           messages: [{ role: 'user', content: userText }],
         }),
-        signal: AbortSignal.timeout(20000), // 20 s timeout
+        signal: AbortSignal.timeout(20000),
       });
       if (!res.ok) throw new Error(`HAI proxy ${res.status}`);
       const data = await res.json();
       const text = data?.content?.[0]?.text ?? '';
       if (!text) throw new Error('empty response');
+      return text;
+    }
+
+    /**
+     * Call the web agent (DuckDuckGo search → HAI with enriched context).
+     * Falls back to callHAI() if the agent is unavailable.
+     */
+    async function callAgent(userText) {
+      const res = await fetch(HAI.agentUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userText, apiKey: HAI.apiKey, model: HAI.model }),
+        signal: AbortSignal.timeout(35000), // agent needs more time (search + LLM)
+      });
+      if (!res.ok) throw new Error(`agent ${res.status}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const text = data?.text ?? '';
+      if (!text) throw new Error('empty agent response');
+      console.log(`[agent] searched=${data.searched}`);
       return text;
     }
 
@@ -166,14 +187,20 @@
         await canvas.streamCodeResponse();
 
       } else {
-        /* Try HAI proxy — fall back to mock on any error */
+        /* Try web agent first (DuckDuckGo + HAI), fall back to direct HAI, then mock */
         try {
-          const raw = await callHAI(text);
+          const raw = await callAgent(text);
           await canvas.streamMarkdown(raw);
-        } catch (err) {
-          console.warn('[HAI] proxy unavailable, using mock:', err.message);
-          await new Promise(r => setTimeout(r, 1200)); // simulate latency
-          await canvas.streamMarkdown(MOCK_TEXT_LINES.join('\n\n'));
+        } catch (agentErr) {
+          console.warn('[agent] unavailable, trying HAI direct:', agentErr.message);
+          try {
+            const raw = await callHAI(text);
+            await canvas.streamMarkdown(raw);
+          } catch (haiErr) {
+            console.warn('[HAI] proxy unavailable, using mock:', haiErr.message);
+            await new Promise(r => setTimeout(r, 1200));
+            await canvas.streamMarkdown(MOCK_TEXT_LINES.join('\n\n'));
+          }
         }
       }
     });

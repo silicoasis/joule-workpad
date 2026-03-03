@@ -1,6 +1,60 @@
-/* marked.js — full-featured CommonMark/GFM markdown renderer (ESM, no build step) */
-import { marked } from 'https://cdn.jsdelivr.net/npm/marked@9/lib/marked.esm.js';
-marked.use({ gfm: true, breaks: true }); // GitHub-flavoured markdown + line-break support
+/* marked.js — lazy-loaded on first streamMarkdown() call (never blocks canvas init)  */
+let _markedLib = null; // cached after first successful load
+async function _getMarked() {
+  if (_markedLib) return _markedLib;
+  try {
+    const m = await import('https://cdn.jsdelivr.net/npm/marked@9/lib/marked.esm.js');
+    _markedLib = m.marked;
+    _markedLib.use({ gfm: true, breaks: true });
+  } catch (e) {
+    console.warn('[canvas] marked.js unavailable — falling back to plain-text render', e.message);
+    /* Minimal inline renderer: headings, bold/italic, lists, inline code, line-breaks */
+    _markedLib = {
+      parse(src) {
+        const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return src
+          .split(/\n{2,}/)
+          .map(block => {
+            /* fenced code block */
+            if (/^```/.test(block)) {
+              const lines = block.replace(/^```[^\n]*\n?/, '').replace(/```\s*$/, '');
+              return `<pre><code>${esc(lines)}</code></pre>`;
+            }
+            /* heading */
+            const hm = block.match(/^(#{1,6})\s+(.*)/);
+            if (hm) return `<h${hm[1].length}>${esc(hm[2])}</h${hm[1].length}>`;
+            /* unordered list */
+            if (/^[-*+]\s/.test(block)) {
+              const items = block.split('\n').filter(Boolean)
+                .map(l => `<li>${esc(l.replace(/^[-*+]\s+/,''))}</li>`).join('');
+              return `<ul>${items}</ul>`;
+            }
+            /* ordered list */
+            if (/^\d+\.\s/.test(block)) {
+              const items = block.split('\n').filter(Boolean)
+                .map(l => `<li>${esc(l.replace(/^\d+\.\s+/,''))}</li>`).join('');
+              return `<ol>${items}</ol>`;
+            }
+            /* blockquote */
+            if (/^>/.test(block)) {
+              return `<blockquote><p>${esc(block.replace(/^>\s?/gm,''))}</p></blockquote>`;
+            }
+            /* hr */
+            if (/^[-*_]{3,}$/.test(block.trim())) return '<hr>';
+            /* paragraph: inline bold/italic/code */
+            const inline = esc(block)
+              .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+              .replace(/\*(.+?)\*/g, '<em>$1</em>')
+              .replace(/`([^`]+)`/g, '<code>$1</code>')
+              .replace(/\n/g, '<br>');
+            return `<p>${inline}</p>`;
+          })
+          .join('\n');
+      }
+    };
+  }
+  return _markedLib;
+}
 
 /**
  * <joule-conversation-canvas> — Joule scrollable conversation view
@@ -670,6 +724,9 @@ class JouleConversationCanvas extends HTMLElement {
     roll.appendChild(messageRow);
     this._scrollToBottom();
 
+    /* Resolve the markdown parser (CDN or inline fallback) — runs once then cached */
+    const md = await _getMarked();
+
     /* Cursor element appended after innerHTML each tick */
     const CURSOR = '<span class="md-cursor" aria-hidden="true"></span>';
 
@@ -682,7 +739,7 @@ class JouleConversationCanvas extends HTMLElement {
       const isWord = /\S/.test(tok);
       if (isWord) {
         try {
-          responseDiv.innerHTML = marked.parse(acc) + CURSOR;
+          responseDiv.innerHTML = md.parse(acc) + CURSOR;
         } catch {
           responseDiv.textContent = acc;
         }
@@ -693,7 +750,7 @@ class JouleConversationCanvas extends HTMLElement {
 
     /* Final render — no cursor */
     try {
-      responseDiv.innerHTML = marked.parse(acc);
+      responseDiv.innerHTML = md.parse(acc);
     } catch {
       responseDiv.textContent = acc;
     }

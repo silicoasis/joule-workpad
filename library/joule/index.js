@@ -11,9 +11,9 @@
  *   </joule-message-input>
  */
 
-import './joule-panel.js';
-import './joule-header.js';
-import './joule-conversation-canvas.js';
-import './joule-message-input.js';
-import './joule-disclaimer.js';
-import './joule-response-actions.js';
+import './joule-panel.js?v=2';
+import './joule-header.js?v=3';
+import './joule-conversation-canvas.js?v=3';
+import './joule-message-input.js?v=4';
+import './joule-disclaimer.js?v=2';
+import './joule-response-actions.js?v=2';

@@ -445,6 +445,12 @@ joule-conversation-canvas:defined,
   pointer-events: auto;
 }
 
+/* Reserve in-flow space below the latest row so its floating toolbar
+   is scrolled fully above the footer overlay */
+.joule-message-row.latest {
+  margin-bottom: 28px;
+}
+
 .joule-response {
   font-family: '72', sans-serif;
   font-weight: 400;

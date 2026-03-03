@@ -864,16 +864,16 @@ joule-response-actions:defined,
   flex-shrink: 0;
 }
 
-/* Individual icon button — Button 38×44  (I3029:963302;2242:622xx) */
+/* Individual icon button — Button 38×24  (3029:1040597) */
 .action-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   width: 38px;
-  height: 44px;
-  min-height: 44px;
-  padding: 3px 0;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -881,15 +881,15 @@ joule-response-actions:defined,
   flex-shrink: 0;
 }
 
-/* Button container inner — 38×38 with 12px padding, rounded-8 */
+/* Button container inner — 38×24, px-12 py-4, rounded-8 */
 .action-btn > .action-icon-wrap,
 .action-btn > .action-icon-wrap--lg {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 38px;
-  height: 38px;
-  padding: 12px;
+  height: 24px;
+  padding: 4px 12px;
   border-radius: 8px;
   flex-shrink: 0;
   position: relative;
@@ -915,11 +915,11 @@ joule-response-actions:defined,
   flex-shrink: 0;
 }
 
-/* add-coursebook: 18×18 two-layer composite — action-icon-wrap--lg is the 38×38 button inner */
+/* add-coursebook: 18×18 two-layer composite — action-icon-wrap--lg is the 38×24 button inner */
 .action-icon-wrap--lg {
   width: 38px;
-  height: 38px;
-  padding: 10px;
+  height: 24px;
+  padding: 4px 10px;
   position: relative;
 }
 
@@ -987,33 +987,34 @@ joule-response-actions:defined,
   height: 100%;
 }
 
-/* Sources button — 121px, flex row, gap-8, px-16 py-8, rounded-8 */
+/* Sources button — 115px, flex row, gap-8, px-16, rounded-8 */
 .sources-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 8px 16px;
-  min-height: 44px;
+  padding: 0 16px;
+  min-height: 24px;
+  align-self: stretch;
   flex-shrink: 0;
   background: transparent;
   border: none;
   cursor: pointer;
   border-radius: 8px;
   transition: background 0.1s ease;
-  width: 121px;
+  width: 115px;
 }
 
 .sources-btn:hover {
   background: rgba(71, 94, 117, 0.08);
 }
 
-/* "Sources" text — 17px semibold #5b738b */
+/* "Sources" text — 16px regular #5b738b (sapFontLargeSize) */
 .sources-label {
   font-family: '72', sans-serif;
-  font-weight: 600;
-  font-size: 17px;
-  line-height: 22px;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: normal;
   color: #5b738b;
   flex-shrink: 0;
   white-space: nowrap;
@@ -1030,13 +1031,13 @@ joule-response-actions:defined,
   width: 18px;
 }
 
-/* Filled badge pill — #e2d8ff bg, #470ced text */
+/* Filled badge pill — #C2FCEE bg, #046C7A text (Accent/Background + Accent/Label) */
 .sources-badge {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #e2d8ff;
-  color: #470ced;
+  background: #C2FCEE;
+  color: #046C7A;
   font-family: '72', sans-serif;
   font-weight: 400;
   font-size: 13px;

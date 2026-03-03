@@ -426,9 +426,14 @@ joule-conversation-canvas:defined,
   width: 384px;
 }
 
-/* Response actions — hidden by default on older rows, revealed on hover.
-   The .latest row keeps actions always visible (no transition needed). */
+/* Response actions — absolutely positioned so they float over the gap between
+   messages without contributing any height to the row.
+   Hidden by default; revealed on hover or for the .latest row. */
 .joule-message-row joule-response-actions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;

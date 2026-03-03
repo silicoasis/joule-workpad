@@ -4,36 +4,92 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WorkPad</title>
-  <link rel="stylesheet" href="styles.css" />
-  <script type="module" src="../library/joule/index.js"></script>
+  <link rel="stylesheet" href="styles.css?v=2" />
+  <script type="module" src="../library/joule/index.js?v=4"></script>
 </head>
 <body>
 
-  <joule-panel
-    background="/library/joule/assets/35389364ed5382f2923bdedaa0c96a0ce997bed2.svg">
+  <div class="panel-wrapper">
+    <joule-panel
+      background="/library/joule/assets/35389364ed5382f2923bdedaa0c96a0ce997bed2.svg">
 
-    <!-- header slot — 3013:83762 -->
-    <joule-header slot="header" title="Pay Stub Issues"></joule-header>
+      <!-- header slot — 3013:83762 -->
+      <joule-header slot="header" title="Conversation Title"></joule-header>
 
-    <!-- content slot — 3013:83766 -->
-    <joule-conversation-canvas slot="content" id="canvas"></joule-conversation-canvas>
+      <!-- content slot — 3013:83766 -->
+      <joule-conversation-canvas slot="content" id="canvas"></joule-conversation-canvas>
 
-    <!-- message-input slot — 3013:83765 -->
-    <joule-message-input
-      slot="message-input"
-      id="input"
-      placeholder="Message with Performance Assistant ..."
-      mention="@performance-assistant">
-    </joule-message-input>
+      <!-- message-input slot — 3013:83765 -->
+      <joule-message-input
+        slot="message-input"
+        id="input"
+        placeholder="Create with Joule"
+        mention="Space">
+      </joule-message-input>
 
-    <!-- disclaimer slot — 3013:83768 -->
-    <joule-disclaimer slot="disclaimer"></joule-disclaimer>
+      <!-- disclaimer slot — 3013:83768 -->
+      <joule-disclaimer slot="disclaimer"></joule-disclaimer>
 
-  </joule-panel>
+    </joule-panel>
+  </div>
 
   <script type="module">
+    /* ── Invisible corner-drag resize ─────────────────────────────────────────
+       Four transparent 24×24 handles are placed at each corner of .panel-wrapper.
+       Dragging any corner resizes width/height; the panel stays centred via body flexbox.
+       No native resize indicator is shown — the handles are completely invisible.
+    ── */
+    (function () {
+      const wrapper = document.querySelector('.panel-wrapper');
+      const MIN_W = 320, MIN_H = 480;
+
+      // cx/cy: +1 = drag toward ↓→ grows, -1 = drag toward ↑← grows
+      const CORNERS = [
+        { t: 0,    l: 0,    cx: -1, cy: -1, cur: 'nw-resize' },
+        { t: 0,    r: 0,    cx:  1, cy: -1, cur: 'ne-resize' },
+        { b: 0,    l: 0,    cx: -1, cy:  1, cur: 'sw-resize' },
+        { b: 0,    r: 0,    cx:  1, cy:  1, cur: 'se-resize' },
+      ];
+
+      CORNERS.forEach(({ t, l, r, b, cx, cy, cur }) => {
+        const el = document.createElement('div');
+        const pos = [
+          t != null ? `top:${t}px`    : null,
+          l != null ? `left:${l}px`   : null,
+          r != null ? `right:${r}px`  : null,
+          b != null ? `bottom:${b}px` : null,
+        ].filter(Boolean).join(';');
+        el.style.cssText =
+          `position:absolute;${pos};width:24px;height:24px;` +
+          `cursor:${cur};z-index:9999;background:transparent;`;
+        wrapper.appendChild(el);
+
+        el.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          const sx = e.clientX, sy = e.clientY;
+          const sw = wrapper.offsetWidth, sh = wrapper.offsetHeight;
+          const maxW = window.innerWidth  - 48;
+          const maxH = window.innerHeight - 48;
+
+          const onMove = (e2) => {
+            const w = Math.max(MIN_W, Math.min(maxW, sw + (e2.clientX - sx) * cx));
+            const h = Math.max(MIN_H, Math.min(maxH, sh + (e2.clientY - sy) * cy));
+            wrapper.style.width  = w + 'px';
+            wrapper.style.height = h + 'px';
+          };
+          const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup',   onUp);
+          };
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup',   onUp);
+        });
+      });
+    })();
+
     /* Wait for custom elements to be defined before wiring events */
     await Promise.all([
+      customElements.whenDefined('joule-panel'),
       customElements.whenDefined('joule-conversation-canvas'),
       customElements.whenDefined('joule-message-input'),
     ]);
@@ -41,36 +97,31 @@
     const canvas = document.getElementById('canvas');
     const input  = document.getElementById('input');
 
-    /* Clicking the conversation canvas collapses the input (if expanded) */
-    canvas.addEventListener('click', () => {
-      input.collapse();
-    });
+    /* Cycle: text → code → table → text → … */
+    let _turn = 0;
 
-    /**
-     * Handle joule-send event:
-     * 1. Add user bubble
-     * 2. Show loading animation (300ms simulated latency)
-     * 3. Stream the mocked 8-line response word-by-word
-     */
-    document.addEventListener('joule-send', async (e) => {
-      const { text, mention } = e.detail ?? {};
-      if (!text?.trim()) return;
-
-      /* 1 — render user bubble */
+    /* joule-send — user submits a message */
+    input.addEventListener('joule-send', async (e) => {
+      const { text, mention } = e.detail;
       canvas.addUserMessage(text, mention);
+      canvas.showLoading('Connecting to Performance Assistant ...');
+      await new Promise(r => setTimeout(r, 1200));
 
-      /* 2 — show loading dots with brief latency */
-      canvas.showLoading('Performance Assistant is thinking ...');
-      await new Promise((r) => setTimeout(r, 600));
+      const turn = _turn++ % 3;
 
-      /* 3 — route response by keyword */
-      const cmd = text.trim().toLowerCase();
-      if (cmd === 'code') {
+      if (turn === 0) {
+        await canvas.streamResponse([
+          'Your current salary band is Grade 5, Band B, as defined in your employment contract dated January 2024, and is determined by your job grade and location cluster assignment.',
+          'The standard compensation range for this band is $72,000 to $88,000 per year, and your current base salary of $74,500 falls within that range.',
+          'The discrepancy you noticed on your latest paycheck is most likely related to the mid-year federal tax withholding adjustment that was applied in August, as well as the updated pension contribution rate that took effect on February 1st of this year.',
+          'Both changes were communicated in the HR bulletin issued in January.',
+          'I recommend reviewing the detailed payslip breakdown available in the SAP SuccessFactors self-service portal, where each deduction line is itemized clearly.',
+          'If after reviewing those details the figures still do not match your expectations, please raise a support ticket with HR Services and reference your employee ID for expedited processing — they typically resolve these within 2 business days.',
+        ]);
+      } else if (turn === 1) {
         await canvas.streamCodeResponse();
-      } else if (cmd === 'table') {
-        await canvas.streamTableResponse();
       } else {
-        await canvas.streamResponse();
+        await canvas.streamTableResponse();
       }
     });
   </script>

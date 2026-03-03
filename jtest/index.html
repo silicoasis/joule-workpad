@@ -97,19 +97,23 @@
     const canvas = document.getElementById('canvas');
     const input  = document.getElementById('input');
 
-    /* Cycle: text → code → table → text → … */
-    let _turn = 0;
-
-    /* joule-send — user submits a message */
+    /* joule-send — keyword routing:
+       "table"  → table response
+       "code"   → code response
+       anything → text response                                              */
     input.addEventListener('joule-send', async (e) => {
       const { text, mention } = e.detail;
       canvas.addUserMessage(text, mention);
       canvas.showLoading('Connecting to Performance Assistant ...');
       await new Promise(r => setTimeout(r, 1200));
 
-      const turn = _turn++ % 3;
+      const kw = text.trim().toLowerCase();
 
-      if (turn === 0) {
+      if (kw === 'table') {
+        await canvas.streamTableResponse();
+      } else if (kw === 'code') {
+        await canvas.streamCodeResponse();
+      } else {
         await canvas.streamResponse([
           'Your current salary band is Grade 5, Band B, as defined in your employment contract dated January 2024, and is determined by your job grade and location cluster assignment.',
           'The standard compensation range for this band is $72,000 to $88,000 per year, and your current base salary of $74,500 falls within that range.',
@@ -118,10 +122,6 @@
           'I recommend reviewing the detailed payslip breakdown available in the SAP SuccessFactors self-service portal, where each deduction line is itemized clearly.',
           'If after reviewing those details the figures still do not match your expectations, please raise a support ticket with HR Services and reference your employee ID for expedited processing — they typically resolve these within 2 business days.',
         ]);
-      } else if (turn === 1) {
-        await canvas.streamCodeResponse();
-      } else {
-        await canvas.streamTableResponse();
       }
     });
   </script>

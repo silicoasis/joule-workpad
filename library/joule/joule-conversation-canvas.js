@@ -207,6 +207,7 @@ class JouleConversationCanvas extends HTMLElement {
               <br />
               <p>Try changing to a different assistant, or edit your prompt based on my capabilities.</p>
             </div>
+            <joule-response-actions sources="2"></joule-response-actions>
           </div>
 
           <!-- User message #2 — 3013:83867 -->
@@ -366,6 +367,11 @@ class JouleConversationCanvas extends HTMLElement {
       }
     }
 
+    /* Append response actions toolbar after streaming completes */
+    const actions = document.createElement('joule-response-actions');
+    messageRow.appendChild(actions);
+    this._scrollToBottom();
+
     this._streaming = false;
   }
 
@@ -480,6 +486,11 @@ class JouleConversationCanvas extends HTMLElement {
       await this._sleep(90);
     }
 
+    /* Append response actions toolbar */
+    const actions = document.createElement('joule-response-actions');
+    messageRow.appendChild(actions);
+    this._scrollToBottom();
+
     this._streaming = false;
   }
 
@@ -577,7 +588,7 @@ class JouleConversationCanvas extends HTMLElement {
     const STATUS_COL_IDX = 6; /* 0-based index of "Status" column */
 
     /* ── 3. Stream rows one by one ── */
-    for (let r = 0; r < tableConfig.rows.length; r++) {
+    for (let r = 0; r < tableConfig.rows.length; r++) {  /* keep comment */
       const rowData = tableConfig.rows[r];
       const tr = document.createElement('tr');
       tr.style.cssText = r % 2 === 1
@@ -622,6 +633,11 @@ class JouleConversationCanvas extends HTMLElement {
       this._scrollToBottom();
       await this._sleep(80);
     }
+
+    /* Append response actions toolbar */
+    const actionsEl = document.createElement('joule-response-actions');
+    messageRow.appendChild(actionsEl);
+    this._scrollToBottom();
 
     this._streaming = false;
   }

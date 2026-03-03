@@ -819,6 +819,179 @@ joule-message-input:defined,
 
 
 /* ═══════════════════════════════════════════════════════════════
+   joule-response-actions  Figma: 3029:963302
+═══════════════════════════════════════════════════════════════ */
+
+/* host */
+joule-response-actions:defined,
+:host(joule-response-actions) {
+  display: flex;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+/* response-actions wrapper — 3029:963302 */
+.response-actions {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  gap: 0;
+}
+
+/* Icon button group — Slot / I3029:963302;2987:140249 */
+.action-icon-slot {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Individual icon button — Button 38×44  (I3029:963302;2242:622xx) */
+.action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 44px;
+  min-height: 44px;
+  padding: 3px 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Button container inner — 38×38 with 12px padding, rounded-8 */
+.action-btn > .action-icon-wrap,
+.action-btn > .action-icon-wrap--lg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 12px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  position: relative;
+  transition: background 0.1s ease;
+}
+
+.action-btn:hover > .action-icon-wrap,
+.action-btn:hover > .action-icon-wrap--lg {
+  background: rgba(71, 94, 117, 0.08);
+}
+
+.action-btn:active > .action-icon-wrap,
+.action-btn:active > .action-icon-wrap--lg {
+  background: rgba(71, 94, 117, 0.16);
+}
+
+/* Standard 16×16 icon */
+.action-icon-wrap img {
+  display: block;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+/* add-coursebook: 18×18 two-layer composite */
+.action-icon-wrap--lg {
+  width: 38px;
+  height: 38px;
+  padding: 10px;
+  position: relative;
+}
+
+.action-icon-layer {
+  position: absolute;
+  display: block;
+  object-fit: contain;
+}
+
+/* Base layer fills the inner box (18×18) */
+.action-icon-layer:not(.action-icon-layer--plus) {
+  width: 18px;
+  height: 18px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Plus/badge overlay — positioned per Figma inset 50.57% -3.5% 9.43% 63.5% */
+.action-icon-layer--plus {
+  top: calc(50% - 50.57% * 18px / 100);
+  right: calc(-3.5% * 18px / 100);
+  bottom: calc(9.43% * 18px / 100);
+  left: calc(63.5% * 18px / 100);
+  width: auto;
+  height: auto;
+}
+
+/* Sources button — 121px, flex row, gap-8, px-16 py-8, rounded-8 */
+.sources-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  min-height: 44px;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.1s ease;
+  width: 121px;
+}
+
+.sources-btn:hover {
+  background: rgba(71, 94, 117, 0.08);
+}
+
+/* "Sources" text — 17px semibold #5b738b */
+.sources-label {
+  font-family: '72', sans-serif;
+  font-weight: 600;
+  font-size: 17px;
+  line-height: 22px;
+  color: #5b738b;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Badge row container */
+.sources-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+  flex-shrink: 0;
+  border-radius: 8px;
+  width: 18px;
+}
+
+/* Filled badge pill — #e2d8ff bg, #470ced text */
+.sources-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e2d8ff;
+  color: #470ced;
+  font-family: '72', sans-serif;
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 18px;
+  height: 22px;
+  padding: 2px 7px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
    joule-disclaimer  Figma: 3013:83799
 ═══════════════════════════════════════════════════════════════ */
 

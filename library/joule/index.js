@@ -13,6 +13,7 @@
 
 import './joule-panel.js';
 import './joule-header.js';
-import './joule-message-input.js';
 import './joule-conversation-canvas.js';
+import './joule-message-input.js';
 import './joule-disclaimer.js';
+import './joule-response-actions.js';

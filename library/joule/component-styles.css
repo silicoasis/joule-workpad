@@ -491,7 +491,7 @@ joule-conversation-canvas:defined,
 
 /* Inline code */
 .joule-response--md code {
-  font-family: 'Cascadia Code', 'Courier New', Courier, monospace;
+  font-family: 'SF Mono', 'Alberto Mono', 'Cascadia Code', 'Courier New', Courier, monospace;
   font-size: 12px;
   background: #f3f4f6;
   color: #5d36ff;
@@ -509,6 +509,7 @@ joule-conversation-canvas:defined,
   margin: 8px 0;
   overflow-x: auto;
   font-size: 12px;
+  font-family: 'SF Mono', 'Alberto Mono', 'Cascadia Code', 'Courier New', Courier, monospace;
   line-height: 1.6;
 }
 .joule-response--md pre code {
@@ -516,7 +517,8 @@ joule-conversation-canvas:defined,
   color: inherit;
   padding: 0;
   border: none;
-  font-size: inherit;
+  font-family: inherit;
+  font-size: 12px;
 }
 
 /* Blockquote */

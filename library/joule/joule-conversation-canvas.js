@@ -494,7 +494,7 @@ class JouleConversationCanvas extends HTMLElement {
       'border-radius:8px',
       'overflow:hidden',
       'border:1px solid #3c3c3c',
-      'font-family:"Cascadia Code","Courier New",Courier,monospace',
+      'font-family:"SF Mono","Alberto Mono","Cascadia Code","Courier New",Courier,monospace',
       'font-size:12px',
       'line-height:1.6',
     ].join(';');

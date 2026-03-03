@@ -1,3 +1,7 @@
+/* marked.js — full-featured CommonMark/GFM markdown renderer (ESM, no build step) */
+import { marked } from 'https://cdn.jsdelivr.net/npm/marked@9/lib/marked.esm.js';
+marked.use({ gfm: true, breaks: true }); // GitHub-flavoured markdown + line-break support
+
 /**
  * <joule-conversation-canvas> — Joule scrollable conversation view
  * Figma: node 3013:83775
@@ -188,9 +192,7 @@ class JouleConversationCanvas extends HTMLElement {
           <div class="user-message-row">
             <div class="user-bubble">
               <div class="user-bubble-inner">
-                <p>something is off
-                  <span class="mention-gradient">@performance-assistant</span>
-                  with my pay stub</p>
+                <p>something is off with my pay stub</p>
               </div>
             </div>
           </div>
@@ -208,17 +210,6 @@ class JouleConversationCanvas extends HTMLElement {
               <p>Try changing to a different assistant, or edit your prompt based on my capabilities.</p>
             </div>
             <joule-response-actions sources="2"></joule-response-actions>
-          </div>
-
-          <!-- User message #2 — 3013:83867 -->
-          <div class="user-message-row">
-            <div class="user-bubble">
-              <div class="user-bubble-inner">
-                <p>something is off
-                  <span class="mention-gradient">@performance-assistant</span>
-                  with my pay stub</p>
-              </div>
-            </div>
           </div>
 
           <!-- Loading animation — 3013:83868 -->
@@ -647,6 +638,68 @@ class JouleConversationCanvas extends HTMLElement {
     /* Append response actions toolbar */
     const actionsEl = document.createElement('joule-response-actions');
     messageRow.appendChild(actionsEl);
+    this._markLatest(messageRow);
+    this._scrollToBottom();
+
+    this._streaming = false;
+  }
+
+  /**
+   * Render a raw markdown string as a Joule response, streaming word-by-word
+   * while re-parsing markdown on each update so formatting appears progressively.
+   * Falls back gracefully to plain text if marked is unavailable.
+   * @param {string} rawText  Full response text (may contain markdown)
+   * @param {number} delay    Word delay in ms (default WORD_DELAY_MS)
+   */
+  async streamMarkdown(rawText, delay = WORD_DELAY_MS) {
+    if (this._streaming) return;
+    this._streaming = true;
+
+    this.hideLoading();
+
+    const roll = this._roll();
+    if (!roll) { this._streaming = false; return; }
+
+    /* ── message row ── */
+    const messageRow = document.createElement('div');
+    messageRow.className = 'joule-message-row';
+
+    const responseDiv = document.createElement('div');
+    responseDiv.className = 'joule-response joule-response--md';
+    messageRow.appendChild(responseDiv);
+    roll.appendChild(messageRow);
+    this._scrollToBottom();
+
+    /* Cursor element appended after innerHTML each tick */
+    const CURSOR = '<span class="md-cursor" aria-hidden="true"></span>';
+
+    /* Split into alternating [word, whitespace] tokens — preserves newlines */
+    const tokens = rawText.match(/\S+|\s+/g) ?? [];
+    let acc = '';
+
+    for (const tok of tokens) {
+      acc += tok;
+      const isWord = /\S/.test(tok);
+      if (isWord) {
+        try {
+          responseDiv.innerHTML = marked.parse(acc) + CURSOR;
+        } catch {
+          responseDiv.textContent = acc;
+        }
+        this._scrollToBottom();
+        await this._sleep(delay);
+      }
+    }
+
+    /* Final render — no cursor */
+    try {
+      responseDiv.innerHTML = marked.parse(acc);
+    } catch {
+      responseDiv.textContent = acc;
+    }
+
+    const actions = document.createElement('joule-response-actions');
+    messageRow.appendChild(actions);
     this._markLatest(messageRow);
     this._scrollToBottom();
 

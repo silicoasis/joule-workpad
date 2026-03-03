@@ -114,7 +114,7 @@
           model:     HAI.model,
           max_tokens: 1024,
           system: 'You are Joule, SAP\'s AI assistant. Be helpful, concise, and professional. ' +
-                  'Respond in 2–4 short plain-text paragraphs without any markdown formatting.',
+                  'Use markdown formatting where appropriate: headings, bold, lists, code blocks, tables.',
           messages: [{ role: 'user', content: userText }],
         }),
         signal: AbortSignal.timeout(20000), // 20 s timeout
@@ -167,17 +167,14 @@
 
       } else {
         /* Try HAI proxy — fall back to mock on any error */
-        let lines;
         try {
           const raw = await callHAI(text);
-          lines = raw.split(/\n+/).map(s => s.trim()).filter(Boolean);
-          if (!lines.length) throw new Error('empty');
+          await canvas.streamMarkdown(raw);
         } catch (err) {
           console.warn('[HAI] proxy unavailable, using mock:', err.message);
           await new Promise(r => setTimeout(r, 1200)); // simulate latency
-          lines = MOCK_TEXT_LINES;
+          await canvas.streamMarkdown(MOCK_TEXT_LINES.join('\n\n'));
         }
-        await canvas.streamResponse(lines);
       }
     });
   </script>

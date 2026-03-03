@@ -994,13 +994,14 @@ joule-response-actions:defined,
   height: 100%;
 }
 
-/* Sources button — 115px, flex col, pt-4, px-16, rounded-8 (3029:1040648) */
+/* Sources button — 115px, flex row, pt-4 px-16 gap-8, rounded-8 (3029:1040648/1040649) */
 .sources-btn {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  padding-top: 4px;
+  gap: 8px;
+  padding: 4px 16px 0;
   min-height: 24px;
   align-self: stretch;
   flex-shrink: 0;
@@ -1010,6 +1011,7 @@ joule-response-actions:defined,
   border-radius: 8px;
   transition: background 0.1s ease;
   width: 115px;
+  white-space: nowrap;
 }
 
 .sources-btn:hover {

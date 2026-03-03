@@ -23,6 +23,81 @@ const DEFAULT_API_KEY = '14615e0f-2fcb-4bb1-8b0a-4fd166743715';
 const DEFAULT_MODEL   = 'anthropic--claude-4.5-haiku';
 
 /* ─────────────────────────────────────────────────────────────────────────
+   0. Airport / flight query detection + OpenSky Network real-time API
+   ───────────────────────────────────────────────────────────────────────── */
+const IATA_TO_ICAO = {
+  SFO:'KSFO',LAX:'KLAX',JFK:'KJFK',ORD:'KORD',ATL:'KATL',DFW:'KDFW',
+  DEN:'KDEN',SEA:'KSEA',MIA:'KMIA',BOS:'KBOS',LAS:'KLAS',PHX:'KPHX',
+  IAH:'KIAH',CLT:'KCLT',MCO:'KMCO',MSP:'KMSP',EWR:'KEWR',LGA:'KLGA',
+  FLL:'KFLL',DTW:'KDTW',PHL:'KPHL',SLC:'KSLC',PDX:'KPDX',AUS:'KAUS',
+  BNA:'KBNA',OAK:'KOAK',SJC:'KSJC',
+  LHR:'EGLL',CDG:'LFPG',AMS:'EHAM',FRA:'EDDF',
+  NRT:'RJAA',HND:'RJTT',ICN:'RKSI',SIN:'WSSS',
+  DXB:'OMDB',SYD:'YSSY',YYZ:'CYYZ',
+};
+
+function detectFlightQuery(text) {
+  const up = text.toUpperCase();
+  // Match IATA codes
+  for (const [iata, icao] of Object.entries(IATA_TO_ICAO)) {
+    if (new RegExp(`\\b${iata}\\b`).test(up)) {
+      const isArr = /arri[vw]|inbound|incoming|landing/i.test(text);
+      const isDep = /depar|outbound|outgoing|takeoff/i.test(text);
+      return { iata, icao, type: isDep ? 'departure' : 'arrival' };
+    }
+  }
+  return null;
+}
+
+/* OpenSky Network free REST API — no key required (rate-limited to ~1 req/5s anonymous) */
+function fetchOpenSkyFlights(icao, type) {
+  const now = Math.floor(Date.now() / 1000);
+  const begin = now - 7200; /* last 2h */
+  const endpoint = type === 'departure' ? 'departure' : 'arrival';
+  const path = `/api/flights/${endpoint}?airport=${icao}&begin=${begin}&end=${now}`;
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'opensky-network.org',
+      path,
+      method:   'GET',
+      headers:  { 'Accept': 'application/json', 'User-Agent': 'joule-agent/1.0' },
+    }, (res) => {
+      let buf = '';
+      res.on('data', c => buf += c);
+      res.on('end', () => {
+        try { const d = JSON.parse(buf); resolve(Array.isArray(d) ? d : []); }
+        catch { resolve([]); }
+      });
+    });
+    req.on('error', () => resolve([]));
+    req.setTimeout(8000, () => { req.destroy(); resolve([]); });
+    req.end();
+  });
+}
+
+function formatFlightTable(flights, iata, type) {
+  if (!flights || flights.length === 0) return '';
+  const label = type === 'departure' ? `Departures from ${iata}` : `Arrivals at ${iata}`;
+  const rows = flights.slice(0, 15).map(f => {
+    const cs  = (f.callsign || '').trim() || '—';
+    const dep = f.estDepartureAirport || '—';
+    const arr = f.estArrivalAirport   || '—';
+    const ts  = f.lastSeen || f.firstSeen;
+    const time = ts
+      ? new Date(ts * 1000).toLocaleTimeString('en-US',
+          { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' })
+      : '—';
+    return type === 'departure'
+      ? `| ${cs} | ${arr} | ${time} |`
+      : `| ${cs} | ${dep} | ${time} |`;
+  }).join('\n');
+  const header = type === 'departure'
+    ? `## ${label} (last 2 h, Pacific Time)\n\n| Flight | Destination | Time |\n|---|---|---|\n`
+    : `## ${label} (last 2 h, Pacific Time)\n\n| Flight | Origin | Time |\n|---|---|---|\n`;
+  return `[OpenSky Network live data]\n\n${header}${rows}\n`;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
    1. DuckDuckGo Instant Answer API (returns JSON, no API key)
    ───────────────────────────────────────────────────────────────────────── */
 function ddgInstant(query) {
@@ -97,13 +172,23 @@ function stripHtml(s) {
     .replace(/\s+/g, ' ').trim();
 }
 
-/* Extract the real href from a DDG result link (DDG wraps via /l/?uddg=...) */
-function extractRealUrl(href) {
-  if (!href) return '';
+/* Extract the real href from a DDG result link.
+   DDG wraps results as: //duckduckgo.com/l/?uddg=URL_ENCODED&amp;rut=... */
+function extractRealUrl(rawHref) {
+  if (!rawHref) return '';
   try {
+    /* Decode HTML entity &amp; → & */
+    const href = rawHref.replace(/&amp;/g, '&');
     if (href.includes('uddg=')) {
-      const u = new URL('https://duckduckgo.com' + (href.startsWith('/') ? href : '/' + href));
-      return decodeURIComponent(u.searchParams.get('uddg') || '');
+      /* Handle both //duckduckgo.com/l/... and /l/... and https://... */
+      const base = href.startsWith('//')
+        ? 'https:' + href
+        : href.startsWith('/')
+          ? 'https://duckduckgo.com' + href
+          : href;
+      const u = new URL(base);
+      const uddg = u.searchParams.get('uddg');
+      return uddg ? decodeURIComponent(uddg) : '';
     }
     return href.startsWith('http') ? href : '';
   } catch { return ''; }
@@ -111,32 +196,31 @@ function extractRealUrl(href) {
 
 function parseDDG(html) {
   const results = [];
-  /* Each organic result is wrapped in <div class="result..."> */
-  const blockRe = /<div[^>]+class="[^"]*result__body[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/g;
-  let bm;
-  while ((bm = blockRe.exec(html)) !== null && results.length < 5) {
-    const block = bm[1];
-    const titleM   = /<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
-    const snippetM = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i.exec(block)
-                  || /<div[^>]+class="result__snippet[^"]*"[^>]*>([\s\S]*?)<\/div>/i.exec(block);
-    const urlM     = /<a[^>]+class="result__url"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
-    if (titleM || snippetM) {
-      results.push({
-        title:   titleM   ? stripHtml(titleM[2])   : '',
-        snippet: snippetM ? stripHtml(snippetM[1]) : '',
-        url:     titleM   ? extractRealUrl(titleM[1]) : (urlM ? stripHtml(urlM[1]) : ''),
-      });
-    }
+
+  /* Flatten extraction: match all result__a anchors and result__snippet anchors separately.
+     DDG always renders them in the same order (title then snippet per result). */
+  const titleRe   = /<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+  const snippetRe = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+
+  const titles = [];
+  let tm;
+  while ((tm = titleRe.exec(html)) !== null && titles.length < 6) {
+    titles.push({ url: extractRealUrl(tm[1]), title: stripHtml(tm[2]) });
   }
 
-  /* Fallback: simpler snippet-only pass */
-  if (results.length === 0) {
-    const snipRe = /class="result__snippet"[^>]*>([\s\S]*?)<\/[ad]>/g;
-    let sm;
-    while ((sm = snipRe.exec(html)) !== null && results.length < 5) {
-      const s = stripHtml(sm[1]);
-      if (s.length > 20) results.push({ title: '', snippet: s, url: '' });
-    }
+  const snippets = [];
+  let sm;
+  while ((sm = snippetRe.exec(html)) !== null && snippets.length < 6) {
+    snippets.push(stripHtml(sm[1]));
+  }
+
+  const count = Math.min(titles.length, Math.max(snippets.length, titles.length), 5);
+  for (let i = 0; i < count; i++) {
+    results.push({
+      title:   titles[i]?.title   || '',
+      url:     titles[i]?.url     || '',
+      snippet: snippets[i]        || '',
+    });
   }
 
   return results;
@@ -149,8 +233,20 @@ function parseDDG(html) {
 const SKIP_DOMAINS = ['youtube.com', 'twitter.com', 'facebook.com', 'instagram.com',
                       'reddit.com', 'linkedin.com', 'tiktok.com'];
 
+function extractText(html, maxChars) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<(nav|header|footer|aside)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+    .replace(/&quot;/g,'"').replace(/&nbsp;/g,' ').replace(/&#x27;/g,"'")
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .slice(0, maxChars);
+}
+
 function fetchPageText(pageUrl, maxChars = 2500, _depth = 0) {
-  /* Hard wall: no more than 2 redirects, and whole fetch must complete in 5s */
   if (_depth > 2) return Promise.resolve('');
   const FETCH_TIMEOUT_MS = 5000;
 
@@ -160,6 +256,14 @@ function fetchPageText(pageUrl, maxChars = 2500, _depth = 0) {
     if (SKIP_DOMAINS.some(d => url.hostname.includes(d))) { resolve(''); return; }
 
     const lib = url.protocol === 'https:' ? https : http;
+    let buf = '';
+    let settled = false;
+    const done = (raw) => {
+      if (settled) return;
+      settled = true;
+      resolve(raw.length > 50 ? extractText(raw, maxChars) : '');
+    };
+
     const req = lib.request({
       hostname: url.hostname,
       path:     url.pathname + url.search,
@@ -171,41 +275,31 @@ function fetchPageText(pageUrl, maxChars = 2500, _depth = 0) {
         'Accept-Language': 'en-US,en;q=0.9',
       },
     }, (res) => {
-      /* Follow redirect (max depth tracked above) */
       if ((res.statusCode === 301 || res.statusCode === 302 ||
            res.statusCode === 303 || res.statusCode === 307) && res.headers.location) {
         res.resume();
         fetchPageText(res.headers.location, maxChars, _depth + 1).then(resolve);
+        settled = true;
         return;
       }
-      if (res.statusCode !== 200) { res.resume(); resolve(''); return; }
+      if (res.statusCode !== 200) { res.resume(); done(''); return; }
 
-      let buf = '';
       res.on('data', c => {
         buf += c;
-        if (buf.length > 150000) { req.destroy(); }
+        if (buf.length > 150000) {
+          /* Cap hit — process what we have now, stop downloading */
+          req.destroy();
+          done(buf);
+        }
       });
-      res.on('end', () => {
-        let text = buf
-          .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-          .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-          .replace(/<(nav|header|footer|aside)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
-          .replace(/&quot;/g,'"').replace(/&nbsp;/g,' ').replace(/&#x27;/g,"'")
-          .replace(/\s{2,}/g, ' ')
-          .trim()
-          .slice(0, maxChars);
-        resolve(text);
-      });
-      res.on('error', () => resolve(''));
+      res.on('end',  () => done(buf));
+      res.on('error',() => done(buf)); /* resolve with whatever we have */
     });
-    req.on('error', () => resolve(''));
-    req.setTimeout(3500, () => { req.destroy(); resolve(''); });
+    req.on('error', () => done(buf));
+    req.setTimeout(3500, () => { req.destroy(); done(buf); });
     req.end();
   });
 
-  /* Overall hard timeout — ensures we never block more than FETCH_TIMEOUT_MS */
   const timeoutPromise = new Promise(r => setTimeout(() => r(''), FETCH_TIMEOUT_MS));
   return Promise.race([fetchPromise, timeoutPromise]);
 }
@@ -355,7 +449,17 @@ const server = http.createServer((req, res) => {
     console.log(`[agent] query: "${userText.slice(0, 80)}..."`);
 
     try {
-      /* Run DDG instant + HTML search in parallel */
+      /* ── Check for airport/flight query → use OpenSky API directly ── */
+      const flightQ = detectFlightQuery(userText);
+      let flightData = '';
+      if (flightQ) {
+        console.log(`[agent] flight query: ${flightQ.iata} (${flightQ.icao}) type=${flightQ.type}`);
+        const flights = await fetchOpenSkyFlights(flightQ.icao, flightQ.type);
+        console.log(`[agent] opensky: ${flights.length} flights`);
+        flightData = formatFlightTable(flights, flightQ.iata, flightQ.type);
+      }
+
+      /* ── Run DDG instant + HTML search in parallel ── */
       const [instant, html] = await Promise.allSettled([
         ddgInstant(userText),
         ddgHtml(userText),
@@ -378,8 +482,14 @@ const server = http.createServer((req, res) => {
       const richPages = pageContents.filter(p => p.text && p.text.length > 100);
       console.log(`[agent] fetched ${richPages.length}/${topUrls.length} pages`);
 
-      const hasResults  = (instant?.AbstractText) || htmlResults.length > 0 || richPages.length > 0;
-      const searchCtx   = hasResults ? buildContext(userText, instant, htmlResults, richPages) : null;
+      /* ── Build context — prepend flight data if available ── */
+      const hasResults  = !!flightData || (instant?.AbstractText) || htmlResults.length > 0 || richPages.length > 0;
+      let searchCtx = hasResults ? buildContext(userText, instant, htmlResults, richPages) : null;
+      if (flightData && searchCtx) {
+        searchCtx = flightData + '\n\n' + searchCtx;
+      } else if (flightData) {
+        searchCtx = flightData;
+      }
 
       const answer = await callHAI(userText, searchCtx, apiKey, model);
 

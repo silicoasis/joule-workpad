@@ -269,11 +269,11 @@ async function fetchPageTextHeadless(pageUrl, maxChars = 4000) {
     await page.waitForTimeout(2500);
 
     const text = await page.evaluate((max) => {
-      /* Try to extract flight table rows first */
+      /* --- Strategy 1: HTML <table> rows --- */
       const tables = document.querySelectorAll('table');
       let tableText = '';
       tables.forEach(t => {
-        const rows = Array.from(t.querySelectorAll('tr')).slice(0, 25);
+        const rows = Array.from(t.querySelectorAll('tr')).slice(0, 60);
         rows.forEach(r => {
           const cells = Array.from(r.querySelectorAll('td,th'))
             .map(c => c.innerText?.trim())
@@ -282,13 +282,29 @@ async function fetchPageTextHeadless(pageUrl, maxChars = 4000) {
           if (cells) tableText += cells + '\n';
         });
       });
-      if (tableText.length > 100) return ('[Flight table data]\n' + tableText).slice(0, max);
+      if (tableText.length > 100) return ('[Flight table]\n' + tableText).slice(0, max);
 
-      /* Fallback: full page text */
+      /* --- Strategy 2: Flight line extraction from innerText ---
+           Filter lines containing time patterns (HH:MM) or flight-number patterns.
+           Skip nav/menu lines (very short lines with no digits or links). */
+      const raw = (document.body?.innerText || '').replace(/\r/g, '');
+      const lines = raw.split('\n').map(l => l.trim()).filter(l => l.length > 3);
+
+      /* Lines with flight data have time OR flight code patterns */
+      const FLIGHT_RE = /\d{1,2}:\d{2}|[A-Z]{2}\d{3,4}|[A-Z0-9]{2}\d{3,4}/;
+      const NAV_RE = /^(Flights|Terminals|Parking|Services|Transport|Car Rental|Reviews|FAQs|Menu|Home|Search|Filter|Show|All|Morning|Afternoon|Evening|Night|\+|<|>|\|)$/i;
+
+      const flightLines = lines.filter(l => FLIGHT_RE.test(l) && !NAV_RE.test(l));
+
+      if (flightLines.length > 5) {
+        return '[Scraped flight data — div layout]\n' + flightLines.slice(0, 200).join('\n').slice(0, max);
+      }
+
+      /* --- Strategy 3: Full text fallback, strip nav first --- */
       ['script','style','nav','footer','header','aside'].forEach(tag => {
         document.querySelectorAll(tag).forEach(el => el.remove());
       });
-      return (document.body?.innerText || document.body?.textContent || '')
+      return (document.body?.innerText || '')
         .replace(/\s{2,}/g, ' ').trim().slice(0, max);
     }, maxChars);
 
@@ -426,7 +442,7 @@ function callHAI(userText, searchContext, apiKey, model) {
 
   const payload = JSON.stringify({
     model:      model || DEFAULT_MODEL,
-    max_tokens: 1200,
+    max_tokens: 2400,
     system,
     messages: [{ role: 'user', content: userText }],
   });
@@ -538,8 +554,8 @@ const server = http.createServer((req, res) => {
         /* Flight queries need JS execution — go straight to headless */
         console.log(`[agent] flight query: headless scrape → ${topUrls[0].url}`);
         const headlessText = await Promise.race([
-          fetchPageTextHeadless(topUrls[0].url, 4000),
-          new Promise(r => setTimeout(() => r(''), 20000)),
+          fetchPageTextHeadless(topUrls[0].url, 10000),
+          new Promise(r => setTimeout(() => r(''), 22000)),
         ]);
         if (headlessText.length > 50) {
           richPages = [{ url: topUrls[0].url, text: headlessText }];

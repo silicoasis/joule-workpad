@@ -741,8 +741,15 @@ class JouleConversationCanvas extends HTMLElement {
     roll.appendChild(messageRow);
     this._scrollToBottom();
 
-    /* Resolve the markdown parser (CDN or inline fallback) — runs once then cached */
-    const md = await _getMarked();
+    /* Preload both libs concurrently before streaming starts — cached after first call */
+    const [md, hljs] = await Promise.all([_getMarked(), _getHljs()]);
+
+    /* Helper: highlight all <pre><code> blocks inside a container */
+    const _applyHljs = (container) => {
+      container.querySelectorAll('pre code:not(.hljs)').forEach((el) => {
+        try { hljs.highlightElement(el); } catch { /* ignore */ }
+      });
+    };
 
     /* Cursor element appended after innerHTML each tick */
     const CURSOR = '<span class="md-cursor" aria-hidden="true"></span>';
@@ -757,6 +764,8 @@ class JouleConversationCanvas extends HTMLElement {
       if (isWord) {
         try {
           responseDiv.innerHTML = md.parse(acc) + CURSOR;
+          /* Highlight any code blocks visible so far (already-highlighted ones skipped) */
+          _applyHljs(responseDiv);
         } catch {
           responseDiv.textContent = acc;
         }
@@ -772,11 +781,8 @@ class JouleConversationCanvas extends HTMLElement {
       responseDiv.textContent = acc;
     }
 
-    /* Apply syntax highlighting to all fenced code blocks */
-    const hljs = await _getHljs();
-    responseDiv.querySelectorAll('pre code').forEach((el) => {
-      try { hljs.highlightElement(el); } catch { /* ignore */ }
-    });
+    /* Final syntax highlighting pass */
+    _applyHljs(responseDiv);
 
     const actions = document.createElement('joule-response-actions');
     messageRow.appendChild(actions);

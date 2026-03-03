@@ -73,6 +73,8 @@ class JouleMessageInput extends HTMLElement {
 
   connectedCallback() {
     this._render();
+    /* Auto-focus the editor on first mount so the user can type immediately. */
+    requestAnimationFrame(() => this._editor()?.focus());
     /* Collapse to single-row when user clicks outside this component.
        composedPath() includes the host element for any click inside the
        shadow root, so this correctly ignores clicks on the input itself. */

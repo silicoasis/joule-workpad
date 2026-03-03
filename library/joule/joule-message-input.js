@@ -80,7 +80,10 @@ class JouleMessageInput extends HTMLElement {
        shadow root, so this correctly ignores clicks on the input itself. */
     this._docClick = (e) => {
       if (this._collapsed) return;
-      if (e.composedPath().includes(this)) return;
+      /* e.target is retargeted to the shadow host for any click inside
+         the shadow root — works even when shadow DOM was mutated during
+         the same event (composedPath() would be stale on detached nodes). */
+      if (e.target === this || this.contains(e.target)) return;
       this.collapse();
     };
     document.addEventListener('click', this._docClick);

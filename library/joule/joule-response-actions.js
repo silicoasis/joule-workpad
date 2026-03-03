@@ -98,18 +98,31 @@ class JouleResponseActions extends HTMLElement {
             </div>
           </button>
 
-          <!-- (6) add-coursebook — sap-icon://add-coursebook (two-layer composite) -->
+          <!-- (6) add-coursebook — sap-icon://add-coursebook (two-layer composite, 18×18) -->
+          <!-- Base "Subtract" inset: 3.37% 4.44% 2.23% 4.44% of 18px               -->
+          <!-- Plus "Vector"    inset: 50.57% -3.5% 9.43% 63.5% of 18px             -->
           <button class="action-btn" data-action="add-coursebook" title="Save to spaces" aria-label="Save to spaces">
             <div class="action-icon-wrap action-icon-wrap--lg">
-              <img alt="" class="action-icon-layer" src="${ICONS.addCoursebook1}" />
-              <img alt="" class="action-icon-layer action-icon-layer--plus" src="${ICONS.addCoursebook2}" />
+              <div class="icon-18">
+                <div class="icon-inset-ac-base">
+                  <img alt="" src="${ICONS.addCoursebook1}" />
+                </div>
+                <div class="icon-inset-ac-plus">
+                  <img alt="" src="${ICONS.addCoursebook2}" />
+                </div>
+              </div>
             </div>
           </button>
 
-          <!-- (7) overflow — sap-icon://overflow -->
+          <!-- (7) overflow — sap-icon://overflow (3 dots, 14.78×3.38, inset in 16×16) -->
+          <!-- inset: 39.09% 3.05% 39.78% 4.55% of 16px                              -->
           <button class="action-btn" data-action="overflow" title="More actions" aria-label="More actions">
             <div class="action-icon-wrap">
-              <img alt="" src="${ICONS.overflow}" />
+              <div class="icon-16-rel">
+                <div class="icon-inset-overflow">
+                  <img alt="" src="${ICONS.overflow}" />
+                </div>
+              </div>
             </div>
           </button>
 

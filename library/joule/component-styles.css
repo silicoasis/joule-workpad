@@ -863,10 +863,11 @@ joule-response-actions:defined,
   gap: 0;
 }
 
-/* Icon button group — Slot / I3029:963302;2987:140249 */
+/* Icon button group — Slot (3029:1040599): items-center pt-4 */
 .action-icon-slot {
   display: flex;
   align-items: center;
+  padding-top: 4px;
   flex-shrink: 0;
 }
 
@@ -993,13 +994,13 @@ joule-response-actions:defined,
   height: 100%;
 }
 
-/* Sources button — 115px, flex row, gap-8, px-16, rounded-8 */
+/* Sources button — 115px, flex col, pt-4, px-16, rounded-8 (3029:1040648) */
 .sources-btn {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 0 16px;
+  padding-top: 4px;
   min-height: 24px;
   align-self: stretch;
   flex-shrink: 0;

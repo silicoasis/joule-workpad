@@ -308,12 +308,15 @@ class JouleMessageInput extends HTMLElement {
   _editor()   { return this.shadowRoot.querySelector('.mi-editor'); }
 
   _syncSend() {
-    const btn = this.shadowRoot.querySelector('[data-act="send"]');
+    const btn  = this.shadowRoot.querySelector('[data-act="send"]');
+    const mic  = this.shadowRoot.querySelector('[data-act="voice"]');
     if (!btn) return;
     if (this._value) {
       btn.removeAttribute('disabled');
+      if (mic) mic.style.display = 'none';        // hide mic while typing
     } else {
       btn.setAttribute('disabled', '');
+      if (mic) mic.style.display = '';             // restore mic when empty
     }
   }
 

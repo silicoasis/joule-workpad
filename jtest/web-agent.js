@@ -28,6 +28,58 @@ const SKIP_DOMAINS = [
   'reddit.com','linkedin.com','tiktok.com','pinterest.com',
 ];
 
+/* ── Known-good curated sources for flight queries ──────────────────────── */
+/* These are injected at the front of the headless queue for flight queries  */
+const IATA_SOURCES = {
+  SFO: 'https://www.airport-sfo.com/san-francisco-arrivals',
+  LAX: 'https://www.flylax.com/lax-flight-information',
+  JFK: 'https://www.jfkairport.com/at-the-airport/flight-information',
+  ORD: 'https://www.flychicago.com/ohare/home/pages/default.aspx',
+  LHR: 'https://www.heathrow.com/flight-information/flight-arrivals',
+  CDG: 'https://www.parisaeroport.fr/en/passengers/flights/arrivals',
+  DFW: 'https://www.dfwairport.com/flights/',
+  ATL: 'https://www.atl.com/flight-information/',
+  DEN: 'https://www.flydenver.com/flights/departures-arrivals',
+  SEA: 'https://www.portseattle.org/sea-tac/flights',
+  MIA: 'https://www.miami-airport.com/flights-arrivals.asp',
+  BOS: 'https://www.massport.com/logan-airport/to-from-logan/flight-info/',
+};
+
+/* Generic fallback for any airport not in IATA_SOURCES */
+const GENERIC_FLIGHT_SOURCES = [
+  (iata) => `https://www.flightstats.com/v2/flight-tracker/arrivals/${iata}`,
+  (iata) => `https://www.airport-info.net/${iata.toLowerCase()}/arrivals`,
+];
+
+/* Common English 3-letter words to exclude from IATA detection */
+const ENGLISH_STOP3 = new Set([
+  'THE','FOR','AND','ARE','BUT','NOT','YOU','ALL','CAN','HER','WAS','ONE',
+  'OUR','OUT','DAY','GET','HAS','HIM','HIS','HOW','ITS','LET','MAN','NEW',
+  'NOW','OLD','SEE','TWO','WAY','WHO','BOY','DID','ITS','ILL','OFF','SIT',
+  'SIX','TEN','TOO','USE','HAD','FEW','MAY','SAY','SHE','WHY','OWN','PUT',
+  'TOO','ANY','FAR','MET','YET','SET','HIT','CUT','TOP','AGO','DUE','FIT',
+  'GOT','RAN','SAT','SAW','WON','YES','FROM','WHAT','WITH','THIS',
+]);
+
+function detectFlightQuery(text) {
+  const upper = text.toUpperCase();
+  const isFlightContext = /arriv|depart|flight|schedule|terminal|land/i.test(text);
+  if (!isFlightContext) return null;
+
+  /* Collect ALL 3-letter words, skip English stop words */
+  const candidates = [];
+  let m;
+  const re = /\b([A-Z]{3})\b/g;
+  while ((m = re.exec(upper)) !== null) {
+    if (!ENGLISH_STOP3.has(m[1])) candidates.push(m[1]);
+  }
+  if (candidates.length === 0) return null;
+
+  /* Prefer known IATA codes; otherwise take first non-stop candidate */
+  const known = candidates.find(c => IATA_SOURCES[c]);
+  return known || candidates[0];
+}
+
 /* ── Well-known free public APIs ────────────────────────────────────────── */
 /* Crypto prices via CoinGecko (free, no key) */
 const CRYPTO_IDS = {
@@ -245,8 +297,10 @@ async function headlessFetch(pageUrl, maxChars = 8000) {
     });
     const page = await browser.newPage();
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
-    await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 15000 });
-    await page.waitForTimeout(2000); /* let lazy JS finish */
+    /* Use domcontentloaded (not networkidle) to avoid timeouts on SPAs that
+       poll continuously; then wait briefly for JS tables to render. */
+    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 8000 });
+    await page.waitForTimeout(2500); /* let JS render flight/schedule data */
 
     const text = await page.evaluate((max) => {
       /* ── Strategy A: HTML <table> rows ── */
@@ -457,6 +511,16 @@ const server = http.createServer((req, res) => {
       const htmlResults = parseDDG(html);
       console.log(`[agent] search: ${htmlResults.length} results, instant=${!!instant?.AbstractText}`);
 
+      /* ── Step 1b: Inject curated flight sources for flight queries ── */
+      const flightIATA = detectFlightQuery(userText);
+      let curatedUrls = [];
+      if (flightIATA) {
+        const primary = IATA_SOURCES[flightIATA];
+        const fallback = GENERIC_FLIGHT_SOURCES[0](flightIATA);
+        curatedUrls = [primary, fallback].filter(Boolean);
+        console.log(`[agent] flight query detected: ${flightIATA} → ${curatedUrls[0]}`);
+      }
+
       /* ── Step 2: Static HTTP fetch of top 3 URLs ────────────────── */
       const topUrls = htmlResults.filter(r => r.url?.startsWith('http')).slice(0, 3);
       const staticPages = await Promise.race([
@@ -474,11 +538,12 @@ const server = http.createServer((req, res) => {
       console.log(`[agent] static: ${richPages.length} rich, ${thinUrls.length} thin`);
 
       /* ── Step 3: Headless Chrome for thin/missing pages ─────────── */
-      /* Try headless for all thin pages, run them sequentially to avoid
-         opening multiple Chrome instances at once.  Stop as soon as we
-         have at least 2 rich results. */
+      /* For flight queries: prioritise curated sources first.
+         For all queries: try thin DDG URLs.
+         Stop as soon as we have 2 rich results. */
       const headlessPages = [...richPages];
-      for (const url of thinUrls) {
+      const headlessQueue = [...curatedUrls, ...thinUrls];
+      for (const url of headlessQueue) {
         if (headlessPages.length >= 2) break;
         /* Skip SKIP_DOMAINS and blocked URL patterns for headless too */
         let urlHost = '';
@@ -490,7 +555,7 @@ const server = http.createServer((req, res) => {
         console.log(`[agent] headless: ${url}`);
         const text = await Promise.race([
           headlessFetch(url, 8000),
-          new Promise(r => setTimeout(() => r(''), 22000)),
+          new Promise(r => setTimeout(() => r(''), 14000)),
         ]);
         if (text.length > 100) {
           headlessPages.push({ url, text });

@@ -144,6 +144,9 @@ function stripHtml(s) {
     .replace(/\s+/g,' ').trim();
 }
 
+/* Blocked URL patterns — ad trackers, login walls, tracking redirects */
+const BLOCKED_URL_RE = /duckduckgo\.com\/y\.js|bing\.com\/aclick|google\.com\/aclk|doubleclick\.net/i;
+
 function extractRealUrl(rawHref) {
   if (!rawHref) return '';
   try {
@@ -153,8 +156,10 @@ function extractRealUrl(rawHref) {
         ? 'https:' + href
         : href.startsWith('/') ? 'https://duckduckgo.com' + href : href;
       const uddg = new URL(base).searchParams.get('uddg');
-      return uddg ? decodeURIComponent(uddg) : '';
+      const decoded = uddg ? decodeURIComponent(uddg) : '';
+      return BLOCKED_URL_RE.test(decoded) ? '' : decoded;
     }
+    if (BLOCKED_URL_RE.test(href)) return '';
     return href.startsWith('http') ? href : '';
   } catch { return ''; }
 }
@@ -353,13 +358,14 @@ function buildContext(query, instant, htmlResults, pageContents) {
 function callHAI(userText, searchCtx, apiKey, model) {
   const system = searchCtx
     ? 'You are Joule, an AI assistant with real-time web access. ' +
-      'A web search was just performed and the raw results are provided below — ' +
-      'DO NOT say you cannot browse the internet or access real-time data. ' +
-      'DO NOT redirect the user to external websites unless they explicitly ask for links. ' +
-      'Present the information DIRECTLY and COMPLETELY in your response. ' +
-      'If the content contains structured data (schedules, prices, tables, lists), ' +
-      'format it as a markdown table or list and show ALL entries available. ' +
-      'Be specific, use actual numbers/names/times from the data, not generic descriptions.\n\n' +
+      'A live web search was performed for this query and the results are below. ' +
+      'STRICT RULES:\n' +
+      '1. NEVER say "I don\'t have access to real-time data" or "my knowledge cutoff" — you have live search results.\n' +
+      '2. NEVER redirect the user to external websites to find the answer themselves.\n' +
+      '3. ALWAYS present the information directly in your response using the search data provided.\n' +
+      '4. If the search results contain structured data (schedules, rankings, prices, tables, lists), format it as a markdown table and show ALL entries.\n' +
+      '5. If search snippets are the only source, synthesize them into a direct, complete answer — do not apologize for limited data.\n' +
+      '6. Use actual names, numbers, dates, and facts from the results — never generic descriptions.\n\n' +
       searchCtx
     : 'You are Joule, an AI assistant. Be helpful, concise, and professional. ' +
       'Use markdown formatting where appropriate.';
@@ -474,6 +480,13 @@ const server = http.createServer((req, res) => {
       const headlessPages = [...richPages];
       for (const url of thinUrls) {
         if (headlessPages.length >= 2) break;
+        /* Skip SKIP_DOMAINS and blocked URL patterns for headless too */
+        let urlHost = '';
+        try { urlHost = new URL(url).hostname; } catch {}
+        if (SKIP_DOMAINS.some(d => urlHost.includes(d)) || BLOCKED_URL_RE.test(url)) {
+          console.log(`[agent] headless: skipping blocked domain ${urlHost}`);
+          continue;
+        }
         console.log(`[agent] headless: ${url}`);
         const text = await Promise.race([
           headlessFetch(url, 8000),

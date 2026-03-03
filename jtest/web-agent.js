@@ -87,7 +87,7 @@ function ddgHtml(query) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   3. Parse DDG HTML — extract up to 5 result titles + snippets
+   3. Parse DDG HTML — extract up to 5 result titles + snippets + real URLs
    ───────────────────────────────────────────────────────────────────────── */
 function stripHtml(s) {
   return s
@@ -97,6 +97,18 @@ function stripHtml(s) {
     .replace(/\s+/g, ' ').trim();
 }
 
+/* Extract the real href from a DDG result link (DDG wraps via /l/?uddg=...) */
+function extractRealUrl(href) {
+  if (!href) return '';
+  try {
+    if (href.includes('uddg=')) {
+      const u = new URL('https://duckduckgo.com' + (href.startsWith('/') ? href : '/' + href));
+      return decodeURIComponent(u.searchParams.get('uddg') || '');
+    }
+    return href.startsWith('http') ? href : '';
+  } catch { return ''; }
+}
+
 function parseDDG(html) {
   const results = [];
   /* Each organic result is wrapped in <div class="result..."> */
@@ -104,15 +116,15 @@ function parseDDG(html) {
   let bm;
   while ((bm = blockRe.exec(html)) !== null && results.length < 5) {
     const block = bm[1];
-    const titleM   = /<a[^>]+class="result__a"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
+    const titleM   = /<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
     const snippetM = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i.exec(block)
                   || /<div[^>]+class="result__snippet[^"]*"[^>]*>([\s\S]*?)<\/div>/i.exec(block);
     const urlM     = /<a[^>]+class="result__url"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
     if (titleM || snippetM) {
       results.push({
-        title:   titleM   ? stripHtml(titleM[1])   : '',
+        title:   titleM   ? stripHtml(titleM[2])   : '',
         snippet: snippetM ? stripHtml(snippetM[1]) : '',
-        url:     urlM     ? stripHtml(urlM[1])      : '',
+        url:     titleM   ? extractRealUrl(titleM[1]) : (urlM ? stripHtml(urlM[1]) : ''),
       });
     }
   }
@@ -131,9 +143,78 @@ function parseDDG(html) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   4. Build search-context string for the LLM system prompt
+   3b. Fetch a web page and extract its visible text content (≤ 3000 chars)
+       Skips known paywalled/JS-only domains gracefully.
    ───────────────────────────────────────────────────────────────────────── */
-function buildContext(query, instant, htmlResults) {
+const SKIP_DOMAINS = ['youtube.com', 'twitter.com', 'facebook.com', 'instagram.com',
+                      'reddit.com', 'linkedin.com', 'tiktok.com'];
+
+function fetchPageText(pageUrl, maxChars = 2500, _depth = 0) {
+  /* Hard wall: no more than 2 redirects, and whole fetch must complete in 5s */
+  if (_depth > 2) return Promise.resolve('');
+  const FETCH_TIMEOUT_MS = 5000;
+
+  const fetchPromise = new Promise((resolve) => {
+    let url;
+    try { url = new URL(pageUrl); } catch { resolve(''); return; }
+    if (SKIP_DOMAINS.some(d => url.hostname.includes(d))) { resolve(''); return; }
+
+    const lib = url.protocol === 'https:' ? https : http;
+    const req = lib.request({
+      hostname: url.hostname,
+      path:     url.pathname + url.search,
+      method:   'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
+                      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    }, (res) => {
+      /* Follow redirect (max depth tracked above) */
+      if ((res.statusCode === 301 || res.statusCode === 302 ||
+           res.statusCode === 303 || res.statusCode === 307) && res.headers.location) {
+        res.resume();
+        fetchPageText(res.headers.location, maxChars, _depth + 1).then(resolve);
+        return;
+      }
+      if (res.statusCode !== 200) { res.resume(); resolve(''); return; }
+
+      let buf = '';
+      res.on('data', c => {
+        buf += c;
+        if (buf.length > 150000) { req.destroy(); }
+      });
+      res.on('end', () => {
+        let text = buf
+          .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+          .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+          .replace(/<(nav|header|footer|aside)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+          .replace(/&quot;/g,'"').replace(/&nbsp;/g,' ').replace(/&#x27;/g,"'")
+          .replace(/\s{2,}/g, ' ')
+          .trim()
+          .slice(0, maxChars);
+        resolve(text);
+      });
+      res.on('error', () => resolve(''));
+    });
+    req.on('error', () => resolve(''));
+    req.setTimeout(3500, () => { req.destroy(); resolve(''); });
+    req.end();
+  });
+
+  /* Overall hard timeout — ensures we never block more than FETCH_TIMEOUT_MS */
+  const timeoutPromise = new Promise(r => setTimeout(() => r(''), FETCH_TIMEOUT_MS));
+  return Promise.race([fetchPromise, timeoutPromise]);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   4. Build search-context string for the LLM system prompt
+      Now includes fetched page content for top results when available.
+   ───────────────────────────────────────────────────────────────────────── */
+function buildContext(query, instant, htmlResults, pageContents) {
   const lines = [`[Web search results for: "${query}"]`, ''];
 
   if (instant?.AbstractText) {
@@ -143,7 +224,7 @@ function buildContext(query, instant, htmlResults) {
   }
 
   const topics = (instant?.RelatedTopics || [])
-    .filter(t => t.Text && !t.Topics)   /* skip category headers */
+    .filter(t => t.Text && !t.Topics)
     .slice(0, 3);
   if (topics.length > 0) {
     lines.push('**Related:**');
@@ -153,10 +234,23 @@ function buildContext(query, instant, htmlResults) {
 
   const topResults = htmlResults.filter(r => r.snippet).slice(0, 4);
   if (topResults.length > 0) {
-    lines.push('**Top results:**');
+    lines.push('**Search result snippets:**');
     topResults.forEach((r, i) => {
       const title = r.title ? `**${r.title}** — ` : '';
-      lines.push(`${i + 1}. ${title}${r.snippet}`);
+      const src   = r.url   ? ` (${r.url})` : '';
+      lines.push(`${i + 1}. ${title}${r.snippet}${src}`);
+    });
+    lines.push('');
+  }
+
+  /* Add fetched page content for context-rich results */
+  if (pageContents && pageContents.length > 0) {
+    lines.push('**Page content (fetched from top results):**');
+    pageContents.forEach((pc, i) => {
+      if (pc.text && pc.text.length > 50) {
+        lines.push(`\n--- Source ${i + 1}: ${pc.url} ---`);
+        lines.push(pc.text.slice(0, 2000));
+      }
     });
     lines.push('');
   }
@@ -169,10 +263,14 @@ function buildContext(query, instant, htmlResults) {
    ───────────────────────────────────────────────────────────────────────── */
 function callHAI(userText, searchContext, apiKey, model) {
   const system = searchContext
-    ? 'You are Joule, SAP\'s AI assistant. The following web search results have been ' +
-      'gathered to help answer the user\'s question. Synthesize the information accurately, ' +
-      'cite relevant details, and indicate when information is from the search results. ' +
-      'Use markdown formatting (headings, bullet lists, code blocks, tables) where appropriate.\n\n' +
+    ? 'You are Joule, SAP\'s AI assistant with web search capability. ' +
+      'The web search has already been performed and the results are provided below — ' +
+      'do NOT say you cannot browse the internet or access real-time data, because the ' +
+      'search was done for you and the content is included here. ' +
+      'Use the provided search results and page content to answer the question as accurately ' +
+      'and specifically as possible. If the search results contain the exact information asked for ' +
+      '(e.g. flight schedules, prices, news), present it directly. ' +
+      'Use markdown formatting (headings, bullet lists, tables) where appropriate.\n\n' +
       searchContext
     : 'You are Joule, SAP\'s AI assistant. Be helpful, concise, and professional. ' +
       'Use markdown formatting where appropriate.';
@@ -266,11 +364,22 @@ const server = http.createServer((req, res) => {
         r[1].status === 'fulfilled' ? r[1].value : '',
       ]);
 
-      const htmlResults  = parseDDG(html);
-      const hasResults   = (instant?.AbstractText) || htmlResults.length > 0;
-      const searchCtx    = hasResults ? buildContext(userText, instant, htmlResults) : null;
-
+      const htmlResults = parseDDG(html);
       console.log(`[agent] search: ${htmlResults.length} results, instant=${!!instant?.AbstractText}`);
+
+      /* Fetch page content from top 2 results with a combined 8s hard cap */
+      const topUrls = htmlResults
+        .filter(r => r.url && r.url.startsWith('http'))
+        .slice(0, 2);
+      const pageContents = await Promise.race([
+        Promise.all(topUrls.map(r => fetchPageText(r.url).then(text => ({ url: r.url, text })))),
+        new Promise(r => setTimeout(() => r([]), 8000)),
+      ]);
+      const richPages = pageContents.filter(p => p.text && p.text.length > 100);
+      console.log(`[agent] fetched ${richPages.length}/${topUrls.length} pages`);
+
+      const hasResults  = (instant?.AbstractText) || htmlResults.length > 0 || richPages.length > 0;
+      const searchCtx   = hasResults ? buildContext(userText, instant, htmlResults, richPages) : null;
 
       const answer = await callHAI(userText, searchCtx, apiKey, model);
 

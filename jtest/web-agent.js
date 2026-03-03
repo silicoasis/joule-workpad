@@ -1,124 +1,100 @@
 #!/usr/bin/env node
 /**
- * web-agent.js — Browser-search agent for Joule
+ * web-agent.js — Generic browser-search agent for Joule
  *
- * Listens on port 6657.  Frontend POSTs { userText } to /agent.
- * The agent:
- *   1. Searches DuckDuckGo (Instant Answer API + HTML results — no key needed)
- *   2. Extracts snippets and builds a search-context block
- *   3. Calls HAI relay (localhost:6656) with the augmented prompt
- *   4. Returns the LLM answer as JSON { text }
- *
- * Usage:  node web-agent.js
- *         AGENT_PORT=6658 node web-agent.js
+ * Pipeline for every query:
+ *   1. DuckDuckGo Instant Answer + HTML search (no key)
+ *   2. Static HTTP fetch of top result URLs  (fast, 5 s cap)
+ *   3. Headless Chrome scrape for any URL where static content is thin
+ *      (handles JS-rendered pages, SPAs, real-time schedules, etc.)
+ *   4. Call HAI relay (Claude) with rich context
+ *   5. Return { text } — data presented directly in chat
  */
 
-const http  = require('http');
-const https = require('https');
+const http   = require('http');
+const https  = require('https');
 const { chromium } = require('playwright-core');
 
-const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-
-const AGENT_PORT = parseInt(process.env.AGENT_PORT ?? '6657', 10);
+const CHROME_PATH    = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const AGENT_PORT     = parseInt(process.env.AGENT_PORT ?? '6657', 10);
 const HAI_RELAY_HOST = '127.0.0.1';
 const HAI_RELAY_PORT = 6656;
 const DEFAULT_API_KEY = '14615e0f-2fcb-4bb1-8b0a-4fd166743715';
 const DEFAULT_MODEL   = 'anthropic--claude-4.5-haiku';
 
-/* ─────────────────────────────────────────────────────────────────────────
-   0. Airport / flight query detection + OpenSky Network real-time API
-   ───────────────────────────────────────────────────────────────────────── */
-const IATA_TO_ICAO = {
-  SFO:'KSFO',LAX:'KLAX',JFK:'KJFK',ORD:'KORD',ATL:'KATL',DFW:'KDFW',
-  DEN:'KDEN',SEA:'KSEA',MIA:'KMIA',BOS:'KBOS',LAS:'KLAS',PHX:'KPHX',
-  IAH:'KIAH',CLT:'KCLT',MCO:'KMCO',MSP:'KMSP',EWR:'KEWR',LGA:'KLGA',
-  FLL:'KFLL',DTW:'KDTW',PHL:'KPHL',SLC:'KSLC',PDX:'KPDX',AUS:'KAUS',
-  BNA:'KBNA',OAK:'KOAK',SJC:'KSJC',
-  LHR:'EGLL',CDG:'LFPG',AMS:'EHAM',FRA:'EDDF',
-  NRT:'RJAA',HND:'RJTT',ICN:'RKSI',SIN:'WSSS',
-  DXB:'OMDB',SYD:'YSSY',YYZ:'CYYZ',
+/* ── Domains to always skip (login walls / bot blocks) ─────────────────── */
+const SKIP_DOMAINS = [
+  'youtube.com','twitter.com','x.com','facebook.com','instagram.com',
+  'reddit.com','linkedin.com','tiktok.com','pinterest.com',
+];
+
+/* ── Well-known free public APIs ────────────────────────────────────────── */
+/* Crypto prices via CoinGecko (free, no key) */
+const CRYPTO_IDS = {
+  bitcoin:'bitcoin',btc:'bitcoin',
+  ethereum:'ethereum',eth:'ethereum',
+  solana:'solana',sol:'solana',
+  dogecoin:'dogecoin',doge:'dogecoin',
+  bnb:'binancecoin',
+  xrp:'ripple',ripple:'ripple',
+  cardano:'cardano',ada:'cardano',
+  avalanche:'avalanche-2',avax:'avalanche-2',
 };
 
-function detectFlightQuery(text) {
-  const up = text.toUpperCase();
-  // Match IATA codes
-  for (const [iata, icao] of Object.entries(IATA_TO_ICAO)) {
-    if (new RegExp(`\\b${iata}\\b`).test(up)) {
-      const isArr = /arri[vw]|inbound|incoming|landing/i.test(text);
-      const isDep = /depar|outbound|outgoing|takeoff/i.test(text);
-      return { iata, icao, type: isDep ? 'departure' : 'arrival' };
-    }
+function detectCryptoQuery(text) {
+  const lower = text.toLowerCase();
+  if (!/price|value|worth|cost|usd|market|rate/i.test(lower)) return null;
+  for (const [kw, id] of Object.entries(CRYPTO_IDS)) {
+    if (lower.includes(kw)) return id;
   }
   return null;
 }
 
-/* OpenSky Network free REST API — no key required (rate-limited to ~1 req/5s anonymous) */
-function fetchOpenSkyFlights(icao, type) {
-  const now = Math.floor(Date.now() / 1000);
-  const begin = now - 7200; /* last 2h */
-  const endpoint = type === 'departure' ? 'departure' : 'arrival';
-  const path = `/api/flights/${endpoint}?airport=${icao}&begin=${begin}&end=${now}`;
+function fetchCryptoPrice(coinId) {
   return new Promise((resolve) => {
+    const path = `/api/v3/simple/price?ids=${coinId}&vs_currencies=usd,eur&include_24hr_change=true&include_market_cap=true`;
     const req = https.request({
-      hostname: 'opensky-network.org',
-      path,
-      method:   'GET',
-      headers:  { 'Accept': 'application/json', 'User-Agent': 'joule-agent/1.0' },
+      hostname: 'api.coingecko.com', path, method: 'GET',
+      headers: { 'Accept': 'application/json', 'User-Agent': 'joule-agent/2.0' },
     }, (res) => {
       let buf = '';
       res.on('data', c => buf += c);
       res.on('end', () => {
-        try { const d = JSON.parse(buf); resolve(Array.isArray(d) ? d : []); }
-        catch { resolve([]); }
+        try {
+          const d = JSON.parse(buf);
+          const coin = d[coinId];
+          if (!coin) { resolve(''); return; }
+          const name = coinId.charAt(0).toUpperCase() + coinId.slice(1);
+          const usd  = coin.usd?.toLocaleString('en-US') || '—';
+          const chg  = coin.usd_24h_change?.toFixed(2) || '—';
+          const cap  = coin.usd_market_cap
+            ? '$' + (coin.usd_market_cap / 1e9).toFixed(2) + 'B'
+            : '—';
+          resolve(`[CoinGecko live price]\n\n**${name}**\n- Price: $${usd} USD\n- 24h change: ${chg}%\n- Market cap: ${cap}\n`);
+        } catch { resolve(''); }
       });
     });
-    req.on('error', () => resolve([]));
-    req.setTimeout(8000, () => { req.destroy(); resolve([]); });
+    req.on('error', () => resolve(''));
+    req.setTimeout(5000, () => { req.destroy(); resolve(''); });
     req.end();
   });
 }
 
-function formatFlightTable(flights, iata, type) {
-  if (!flights || flights.length === 0) return '';
-  const label = type === 'departure' ? `Departures from ${iata}` : `Arrivals at ${iata}`;
-  const rows = flights.slice(0, 15).map(f => {
-    const cs  = (f.callsign || '').trim() || '—';
-    const dep = f.estDepartureAirport || '—';
-    const arr = f.estArrivalAirport   || '—';
-    const ts  = f.lastSeen || f.firstSeen;
-    const time = ts
-      ? new Date(ts * 1000).toLocaleTimeString('en-US',
-          { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' })
-      : '—';
-    return type === 'departure'
-      ? `| ${cs} | ${arr} | ${time} |`
-      : `| ${cs} | ${dep} | ${time} |`;
-  }).join('\n');
-  const header = type === 'departure'
-    ? `## ${label} (last 2 h, Pacific Time)\n\n| Flight | Destination | Time |\n|---|---|---|\n`
-    : `## ${label} (last 2 h, Pacific Time)\n\n| Flight | Origin | Time |\n|---|---|---|\n`;
-  return `[OpenSky Network live data]\n\n${header}${rows}\n`;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────
-   1. DuckDuckGo Instant Answer API (returns JSON, no API key)
-   ───────────────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   1.  DuckDuckGo — Instant Answer JSON + HTML search results
+   ═════════════════════════════════════════════════════════════════════════ */
 function ddgInstant(query) {
   const q = encodeURIComponent(query);
-  const path = `/?q=${q}&format=json&no_html=1&skip_disambig=1`;
   return new Promise((resolve) => {
     const req = https.request({
       hostname: 'api.duckduckgo.com',
-      path,
+      path: `/?q=${q}&format=json&no_html=1&skip_disambig=1`,
       method: 'GET',
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; joule-web-agent/1.0)' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; joule-agent/2.0)' },
     }, (res) => {
       let buf = '';
       res.on('data', c => buf += c);
-      res.on('end', () => {
-        try { resolve(JSON.parse(buf)); }
-        catch { resolve(null); }
-      });
+      res.on('end', () => { try { resolve(JSON.parse(buf)); } catch { resolve(null); } });
     });
     req.on('error', () => resolve(null));
     req.setTimeout(5000, () => { req.destroy(); resolve(null); });
@@ -126,9 +102,6 @@ function ddgInstant(query) {
   });
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   2. DuckDuckGo HTML search (returns top-result snippets)
-   ───────────────────────────────────────────────────────────────────────── */
 function ddgHtml(query) {
   const q = encodeURIComponent(query);
   return new Promise((resolve) => {
@@ -143,14 +116,12 @@ function ddgHtml(query) {
         'Accept-Language': 'en-US,en;q=0.9',
       },
     }, (res) => {
-      /* Follow single redirect */
-      if (res.statusCode >= 301 && res.statusCode <= 302 && res.headers.location) {
-        const loc = res.headers.location;
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
         res.resume();
-        https.get(loc, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res2) => {
+        https.get(res.headers.location, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (r2) => {
           let buf = '';
-          res2.on('data', c => buf += c);
-          res2.on('end', () => resolve(buf));
+          r2.on('data', c => buf += c);
+          r2.on('end', () => resolve(buf));
         }).on('error', () => resolve(''));
         return;
       }
@@ -164,33 +135,24 @@ function ddgHtml(query) {
   });
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   3. Parse DDG HTML — extract up to 5 result titles + snippets + real URLs
-   ───────────────────────────────────────────────────────────────────────── */
+/* ── Parse DDG HTML → [{title, url, snippet}] ──────────────────────────── */
 function stripHtml(s) {
   return s
     .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ').trim();
+    .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+    .replace(/&quot;/g,'"').replace(/&#x27;/g,"'").replace(/&nbsp;/g,' ')
+    .replace(/\s+/g,' ').trim();
 }
 
-/* Extract the real href from a DDG result link.
-   DDG wraps results as: //duckduckgo.com/l/?uddg=URL_ENCODED&amp;rut=... */
 function extractRealUrl(rawHref) {
   if (!rawHref) return '';
   try {
-    /* Decode HTML entity &amp; → & */
     const href = rawHref.replace(/&amp;/g, '&');
     if (href.includes('uddg=')) {
-      /* Handle both //duckduckgo.com/l/... and /l/... and https://... */
       const base = href.startsWith('//')
         ? 'https:' + href
-        : href.startsWith('/')
-          ? 'https://duckduckgo.com' + href
-          : href;
-      const u = new URL(base);
-      const uddg = u.searchParams.get('uddg');
+        : href.startsWith('/') ? 'https://duckduckgo.com' + href : href;
+      const uddg = new URL(base).searchParams.get('uddg');
       return uddg ? decodeURIComponent(uddg) : '';
     }
     return href.startsWith('http') ? href : '';
@@ -198,62 +160,77 @@ function extractRealUrl(rawHref) {
 }
 
 function parseDDG(html) {
-  const results = [];
-
-  /* Flatten extraction: match all result__a anchors and result__snippet anchors separately.
-     DDG always renders them in the same order (title then snippet per result). */
   const titleRe   = /<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
   const snippetRe = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
-
-  const titles = [];
-  let tm;
-  while ((tm = titleRe.exec(html)) !== null && titles.length < 6) {
+  const titles = []; let tm;
+  while ((tm = titleRe.exec(html)) !== null && titles.length < 6)
     titles.push({ url: extractRealUrl(tm[1]), title: stripHtml(tm[2]) });
-  }
-
-  const snippets = [];
-  let sm;
-  while ((sm = snippetRe.exec(html)) !== null && snippets.length < 6) {
+  const snippets = []; let sm;
+  while ((sm = snippetRe.exec(html)) !== null && snippets.length < 6)
     snippets.push(stripHtml(sm[1]));
-  }
-
-  const count = Math.min(titles.length, Math.max(snippets.length, titles.length), 5);
-  for (let i = 0; i < count; i++) {
-    results.push({
-      title:   titles[i]?.title   || '',
-      url:     titles[i]?.url     || '',
-      snippet: snippets[i]        || '',
-    });
-  }
-
-  return results;
+  return Array.from({ length: Math.min(titles.length, 5) }, (_, i) => ({
+    title:   titles[i]?.title   || '',
+    url:     titles[i]?.url     || '',
+    snippet: snippets[i]        || '',
+  }));
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   3b. Fetch a web page and extract its visible text content (≤ 3000 chars)
-       Skips known paywalled/JS-only domains gracefully.
-   ───────────────────────────────────────────────────────────────────────── */
-const SKIP_DOMAINS = ['youtube.com', 'twitter.com', 'facebook.com', 'instagram.com',
-                      'reddit.com', 'linkedin.com', 'tiktok.com'];
-
-function extractText(html, maxChars) {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<(nav|header|footer|aside)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
-    .replace(/&quot;/g,'"').replace(/&nbsp;/g,' ').replace(/&#x27;/g,"'")
-    .replace(/\s{2,}/g, ' ')
-    .trim()
-    .slice(0, maxChars);
+/* ═══════════════════════════════════════════════════════════════════════════
+   2.  Static HTTP page fetch  (fast, no JS execution)
+   ═════════════════════════════════════════════════════════════════════════ */
+function staticFetch(pageUrl, maxChars = 3000, _depth = 0) {
+  if (_depth > 2) return Promise.resolve('');
+  return Promise.race([
+    new Promise((resolve) => {
+      let url; try { url = new URL(pageUrl); } catch { resolve(''); return; }
+      if (SKIP_DOMAINS.some(d => url.hostname.includes(d))) { resolve(''); return; }
+      const lib = url.protocol === 'https:' ? https : http;
+      let buf = '', settled = false;
+      const done = (raw) => {
+        if (settled) return; settled = true;
+        if (raw.length < 50) { resolve(''); return; }
+        const text = raw
+          .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+          .replace(/<style[\s\S]*?<\/style>/gi,  ' ')
+          .replace(/<(nav|header|footer|aside)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+          .replace(/&quot;/g,'"').replace(/&nbsp;/g,' ')
+          .replace(/\s{2,}/g, ' ').trim().slice(0, maxChars);
+        resolve(text);
+      };
+      const req = lib.request({
+        hostname: url.hostname, path: url.pathname + url.search, method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
+                        'AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      }, (res) => {
+        if ([301,302,303,307].includes(res.statusCode) && res.headers.location) {
+          res.resume(); settled = true;
+          staticFetch(res.headers.location, maxChars, _depth + 1).then(resolve);
+          return;
+        }
+        if (res.statusCode !== 200) { res.resume(); done(''); return; }
+        res.on('data', c => { buf += c; if (buf.length > 200000) { req.destroy(); done(buf); } });
+        res.on('end',  () => done(buf));
+        res.on('error',() => done(buf));
+      });
+      req.on('error', () => done(buf));
+      req.setTimeout(4000, () => { req.destroy(); done(buf); });
+      req.end();
+    }),
+    new Promise(r => setTimeout(() => r(''), 5500)),
+  ]);
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   3c. Headless Chrome scrape — for JS-rendered pages
-       Returns text content after JavaScript executes (15 s hard cap)
-   ───────────────────────────────────────────────────────────────────────── */
-async function fetchPageTextHeadless(pageUrl, maxChars = 4000) {
+/* ═══════════════════════════════════════════════════════════════════════════
+   3.  Headless Chrome scrape — generic smart extraction
+       Handles tables, article text, repeating list items, schedule pages, etc.
+   ═════════════════════════════════════════════════════════════════════════ */
+async function headlessFetch(pageUrl, maxChars = 8000) {
   let browser;
   try {
     browser = await chromium.launch({
@@ -263,122 +240,74 @@ async function fetchPageTextHeadless(pageUrl, maxChars = 4000) {
     });
     const page = await browser.newPage();
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
-    await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 14000 });
-
-    /* Give JS tables extra time to populate with data */
-    await page.waitForTimeout(2500);
+    await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 15000 });
+    await page.waitForTimeout(2000); /* let lazy JS finish */
 
     const text = await page.evaluate((max) => {
-      /* --- Strategy 1: HTML <table> rows --- */
+      /* ── Strategy A: HTML <table> rows ── */
       const tables = document.querySelectorAll('table');
       let tableText = '';
       tables.forEach(t => {
-        const rows = Array.from(t.querySelectorAll('tr')).slice(0, 60);
-        rows.forEach(r => {
+        Array.from(t.querySelectorAll('tr')).slice(0, 80).forEach(r => {
           const cells = Array.from(r.querySelectorAll('td,th'))
-            .map(c => c.innerText?.trim())
-            .filter(Boolean)
-            .join('\t');
+            .map(c => c.innerText?.trim()).filter(Boolean).join('\t');
           if (cells) tableText += cells + '\n';
         });
       });
-      if (tableText.length > 100) return ('[Flight table]\n' + tableText).slice(0, max);
+      if (tableText.length > 150) return ('[TABLE DATA]\n' + tableText).slice(0, max);
 
-      /* --- Strategy 2: Flight line extraction from innerText ---
-           Filter lines containing time patterns (HH:MM) or flight-number patterns.
-           Skip nav/menu lines (very short lines with no digits or links). */
-      const raw = (document.body?.innerText || '').replace(/\r/g, '');
-      const lines = raw.split('\n').map(l => l.trim()).filter(l => l.length > 3);
-
-      /* Lines with flight data have time OR flight code patterns */
-      const FLIGHT_RE = /\d{1,2}:\d{2}|[A-Z]{2}\d{3,4}|[A-Z0-9]{2}\d{3,4}/;
-      const NAV_RE = /^(Flights|Terminals|Parking|Services|Transport|Car Rental|Reviews|FAQs|Menu|Home|Search|Filter|Show|All|Morning|Afternoon|Evening|Night|\+|<|>|\|)$/i;
-
-      const flightLines = lines.filter(l => FLIGHT_RE.test(l) && !NAV_RE.test(l));
-
-      if (flightLines.length > 5) {
-        return '[Scraped flight data — div layout]\n' + flightLines.slice(0, 200).join('\n').slice(0, max);
+      /* ── Strategy B: <main> / <article> / [role=main] content ── */
+      const main = document.querySelector('main,[role=main],article,#content,.content,.main-content,#main');
+      if (main) {
+        ['script','style','nav','footer','header','aside'].forEach(tag =>
+          main.querySelectorAll(tag).forEach(el => el.remove()));
+        const mt = (main.innerText || main.textContent || '').replace(/\s{2,}/g,' ').trim();
+        if (mt.length > 200) return mt.slice(0, max);
       }
 
-      /* --- Strategy 3: Full text fallback, strip nav first --- */
-      ['script','style','nav','footer','header','aside'].forEach(tag => {
-        document.querySelectorAll(tag).forEach(el => el.remove());
-      });
-      return (document.body?.innerText || '')
-        .replace(/\s{2,}/g, ' ').trim().slice(0, max);
+      /* ── Strategy C: Time/schedule/flight line extraction ── */
+      const raw = (document.body?.innerText || '').replace(/\r/g, '');
+      const TIME_OR_FLIGHT = /\d{1,2}:\d{2}|[A-Z]{2}\d{3,4}/;
+      const NOISE = /^(Flights?|Terminals?|Parking|Services?|Transport|Car Rental|Reviews?|FAQs?|Menu|Home|Search|Filter|Show|All|Morning|Afternoon|Evening|Night|\+|<|>|\|)$/i;
+      const schedLines = raw.split('\n').map(l => l.trim())
+        .filter(l => l.length > 3 && TIME_OR_FLIGHT.test(l) && !NOISE.test(l));
+      if (schedLines.length > 8)
+        return '[SCHEDULE DATA]\n' + schedLines.slice(0, 200).join('\n').slice(0, max);
+
+      /* ── Strategy D: Repeating item extraction (news articles, product lists) ── */
+      const candidates = [
+        'article', '.article', '.post', '.item', '.result', '.card',
+        '.news-item', '.product', 'li[class]', '[class*=item]', '[class*=row]',
+      ];
+      for (const sel of candidates) {
+        const items = Array.from(document.querySelectorAll(sel)).slice(0, 30);
+        if (items.length >= 3) {
+          const itemText = items
+            .map(el => (el.innerText || '').replace(/\s{2,}/g,' ').trim())
+            .filter(t => t.length > 20)
+            .join('\n---\n');
+          if (itemText.length > 200) return ('[LIST ITEMS]\n' + itemText).slice(0, max);
+        }
+      }
+
+      /* ── Strategy E: Full page text fallback ── */
+      ['script','style','nav','footer','header','aside'].forEach(tag =>
+        document.querySelectorAll(tag).forEach(el => el.remove()));
+      return ((document.body?.innerText || '').replace(/\s{2,}/g, ' ').trim()).slice(0, max);
     }, maxChars);
 
     await browser.close();
     return text;
   } catch (err) {
-    console.error('[agent] headless error:', err.message.slice(0, 80));
+    console.error('[agent] headless error:', err.message.slice(0, 100));
     try { await browser?.close(); } catch {}
     return '';
   }
 }
 
-function fetchPageText(pageUrl, maxChars = 2500, _depth = 0) {
-  if (_depth > 2) return Promise.resolve('');
-  const FETCH_TIMEOUT_MS = 5000;
-
-  const fetchPromise = new Promise((resolve) => {
-    let url;
-    try { url = new URL(pageUrl); } catch { resolve(''); return; }
-    if (SKIP_DOMAINS.some(d => url.hostname.includes(d))) { resolve(''); return; }
-
-    const lib = url.protocol === 'https:' ? https : http;
-    let buf = '';
-    let settled = false;
-    const done = (raw) => {
-      if (settled) return;
-      settled = true;
-      resolve(raw.length > 50 ? extractText(raw, maxChars) : '');
-    };
-
-    const req = lib.request({
-      hostname: url.hostname,
-      path:     url.pathname + url.search,
-      method:   'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
-                      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-    }, (res) => {
-      if ((res.statusCode === 301 || res.statusCode === 302 ||
-           res.statusCode === 303 || res.statusCode === 307) && res.headers.location) {
-        res.resume();
-        fetchPageText(res.headers.location, maxChars, _depth + 1).then(resolve);
-        settled = true;
-        return;
-      }
-      if (res.statusCode !== 200) { res.resume(); done(''); return; }
-
-      res.on('data', c => {
-        buf += c;
-        if (buf.length > 150000) {
-          /* Cap hit — process what we have now, stop downloading */
-          req.destroy();
-          done(buf);
-        }
-      });
-      res.on('end',  () => done(buf));
-      res.on('error',() => done(buf)); /* resolve with whatever we have */
-    });
-    req.on('error', () => done(buf));
-    req.setTimeout(3500, () => { req.destroy(); done(buf); });
-    req.end();
-  });
-
-  const timeoutPromise = new Promise(r => setTimeout(() => r(''), FETCH_TIMEOUT_MS));
-  return Promise.race([fetchPromise, timeoutPromise]);
-}
-
-/* ─────────────────────────────────────────────────────────────────────────
-   4. Build search-context string for the LLM system prompt
-      Now includes fetched page content for top results when available.
-   ───────────────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   4.  Build LLM context block
+   ═════════════════════════════════════════════════════════════════════════ */
 function buildContext(query, instant, htmlResults, pageContents) {
   const lines = [`[Web search results for: "${query}"]`, ''];
 
@@ -387,34 +316,29 @@ function buildContext(query, instant, htmlResults, pageContents) {
     if (instant.AbstractURL) lines.push(`Source: ${instant.AbstractURL}`);
     lines.push('');
   }
-
-  const topics = (instant?.RelatedTopics || [])
-    .filter(t => t.Text && !t.Topics)
-    .slice(0, 3);
-  if (topics.length > 0) {
+  const relTopics = (instant?.RelatedTopics || []).filter(t => t.Text && !t.Topics).slice(0, 3);
+  if (relTopics.length) {
     lines.push('**Related:**');
-    topics.forEach(t => lines.push(`- ${t.Text.replace(/\s*https?:\/\/\S+/g, '').trim()}`));
+    relTopics.forEach(t => lines.push(`- ${t.Text.replace(/\s*https?:\/\/\S+/g,'').trim()}`));
     lines.push('');
   }
 
-  const topResults = htmlResults.filter(r => r.snippet).slice(0, 4);
-  if (topResults.length > 0) {
-    lines.push('**Search result snippets:**');
-    topResults.forEach((r, i) => {
-      const title = r.title ? `**${r.title}** — ` : '';
-      const src   = r.url   ? ` (${r.url})` : '';
-      lines.push(`${i + 1}. ${title}${r.snippet}${src}`);
+  const topSnippets = htmlResults.filter(r => r.snippet).slice(0, 4);
+  if (topSnippets.length) {
+    lines.push('**Search snippets:**');
+    topSnippets.forEach((r, i) => {
+      const src = r.url ? ` (${r.url})` : '';
+      lines.push(`${i+1}. ${r.title ? `**${r.title}** — ` : ''}${r.snippet}${src}`);
     });
     lines.push('');
   }
 
-  /* Add fetched page content for context-rich results */
-  if (pageContents && pageContents.length > 0) {
-    lines.push('**Page content (fetched from top results):**');
+  if (pageContents?.length) {
+    lines.push('**Fetched page content:**');
     pageContents.forEach((pc, i) => {
-      if (pc.text && pc.text.length > 50) {
-        lines.push(`\n--- Source ${i + 1}: ${pc.url} ---`);
-        lines.push(pc.text.slice(0, 2000));
+      if (pc.text?.length > 50) {
+        lines.push(`\n--- Source ${i+1}: ${pc.url} ---`);
+        lines.push(pc.text.slice(0, 6000));
       }
     });
     lines.push('');
@@ -423,36 +347,33 @@ function buildContext(query, instant, htmlResults, pageContents) {
   return lines.join('\n');
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   5. Call HAI relay → get answer text
-   ───────────────────────────────────────────────────────────────────────── */
-function callHAI(userText, searchContext, apiKey, model) {
-  const system = searchContext
-    ? 'You are Joule, SAP\'s AI assistant with web search capability. ' +
-      'The web search has already been performed and the results are provided below — ' +
-      'do NOT say you cannot browse the internet or access real-time data, because the ' +
-      'search was done for you and the content is included here. ' +
-      'Use the provided search results and page content to answer the question as accurately ' +
-      'and specifically as possible. If the search results contain the exact information asked for ' +
-      '(e.g. flight schedules, prices, news), present it directly. ' +
-      'Use markdown formatting (headings, bullet lists, tables) where appropriate.\n\n' +
-      searchContext
-    : 'You are Joule, SAP\'s AI assistant. Be helpful, concise, and professional. ' +
+/* ═══════════════════════════════════════════════════════════════════════════
+   5.  Call HAI relay (Claude)
+   ═════════════════════════════════════════════════════════════════════════ */
+function callHAI(userText, searchCtx, apiKey, model) {
+  const system = searchCtx
+    ? 'You are Joule, an AI assistant with real-time web access. ' +
+      'A web search was just performed and the raw results are provided below — ' +
+      'DO NOT say you cannot browse the internet or access real-time data. ' +
+      'DO NOT redirect the user to external websites unless they explicitly ask for links. ' +
+      'Present the information DIRECTLY and COMPLETELY in your response. ' +
+      'If the content contains structured data (schedules, prices, tables, lists), ' +
+      'format it as a markdown table or list and show ALL entries available. ' +
+      'Be specific, use actual numbers/names/times from the data, not generic descriptions.\n\n' +
+      searchCtx
+    : 'You are Joule, an AI assistant. Be helpful, concise, and professional. ' +
       'Use markdown formatting where appropriate.';
 
   const payload = JSON.stringify({
     model:      model || DEFAULT_MODEL,
-    max_tokens: 2400,
+    max_tokens: 3000,
     system,
     messages: [{ role: 'user', content: userText }],
   });
 
   return new Promise((resolve, reject) => {
     const req = http.request({
-      hostname:  HAI_RELAY_HOST,
-      port:      HAI_RELAY_PORT,
-      path:      '/',
-      method:    'POST',
+      hostname: HAI_RELAY_HOST, port: HAI_RELAY_PORT, path: '/', method: 'POST',
       headers: {
         'Content-Type':      'application/json',
         'Content-Length':    Buffer.byteLength(payload),
@@ -464,141 +385,118 @@ function callHAI(userText, searchContext, apiKey, model) {
       res.on('data', c => buf += c);
       res.on('end', () => {
         try {
-          const json = JSON.parse(buf);
-          const text = json?.content?.[0]?.text ?? '';
-          if (!text) reject(new Error(`empty HAI response (status ${res.statusCode})`));
-          else resolve(text);
-        } catch (e) {
-          reject(new Error('HAI response parse error: ' + e.message));
-        }
+          const j = JSON.parse(buf);
+          const t = j?.content?.[0]?.text ?? '';
+          if (!t) reject(new Error(`empty response (status ${res.statusCode})`));
+          else resolve(t);
+        } catch (e) { reject(new Error('parse error: ' + e.message)); }
       });
     });
     req.on('error', reject);
-    req.setTimeout(25000, () => { req.destroy(); reject(new Error('HAI timeout')); });
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('HAI timeout')); });
     req.write(payload);
     req.end();
   });
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   6. HTTP server
-   ───────────────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   6.  HTTP server
+   ═════════════════════════════════════════════════════════════════════════ */
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204); res.end(); return;
-  }
-
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
   if (req.method !== 'POST' || req.url !== '/agent') {
     res.writeHead(req.method === 'POST' ? 404 : 405, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Use POST /agent' }));
-    return;
+    res.end(JSON.stringify({ error: 'Use POST /agent' })); return;
   }
 
   const chunks = [];
   req.on('data', c => chunks.push(c));
   req.on('end', async () => {
     let body;
-    try {
-      body = JSON.parse(Buffer.concat(chunks).toString());
-    } catch {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'invalid JSON body' }));
-      return;
-    }
+    try { body = JSON.parse(Buffer.concat(chunks).toString()); }
+    catch { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'invalid JSON'})); return; }
 
     const { userText, apiKey, model } = body;
     if (!userText || typeof userText !== 'string') {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'userText is required' }));
-      return;
+      res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'userText required'})); return;
     }
 
-    console.log(`[agent] query: "${userText.slice(0, 80)}..."`);
+    console.log(`[agent] query: "${userText.slice(0, 90)}"`);
 
     try {
-      /* ── Check for airport/flight query → use OpenSky API directly ── */
-      const flightQ = detectFlightQuery(userText);
-      let flightData = '';
-      if (flightQ) {
-        console.log(`[agent] flight query: ${flightQ.iata} (${flightQ.icao}) type=${flightQ.type}`);
-        const flights = await fetchOpenSkyFlights(flightQ.icao, flightQ.type);
-        console.log(`[agent] opensky: ${flights.length} flights`);
-        flightData = formatFlightTable(flights, flightQ.iata, flightQ.type);
+      /* ── Step 0: Direct public APIs (crypto, etc.) ──────────────── */
+      const cryptoId = detectCryptoQuery(userText);
+      let directApiData = '';
+      if (cryptoId) {
+        console.log(`[agent] crypto API: ${cryptoId}`);
+        directApiData = await fetchCryptoPrice(cryptoId);
+        if (directApiData) console.log('[agent] crypto: got price data');
       }
 
-      /* ── Run DDG instant + HTML search in parallel ── */
-      const [instant, html] = await Promise.allSettled([
-        ddgInstant(userText),
-        ddgHtml(userText),
-      ]).then(r => [
-        r[0].status === 'fulfilled' ? r[0].value : null,
-        r[1].status === 'fulfilled' ? r[1].value : '',
-      ]);
-
+      /* ── Step 1: DDG search (retry once on empty, rate-limit guard) */
+      let instant = null, html = '';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 1500)); /* backoff */
+        const [iRes, hRes] = await Promise.allSettled([
+          ddgInstant(userText), ddgHtml(userText),
+        ]);
+        instant = iRes.status === 'fulfilled' ? iRes.value : null;
+        html    = hRes.status === 'fulfilled' ? hRes.value : '';
+        if (parseDDG(html).length > 0) break; /* got results, stop retrying */
+        console.log(`[agent] DDG empty, attempt ${attempt + 1}`);
+      }
       const htmlResults = parseDDG(html);
       console.log(`[agent] search: ${htmlResults.length} results, instant=${!!instant?.AbstractText}`);
 
-      /* Fetch page content: for flight queries always use headless Chrome (JS-rendered data);
-         for other queries plain HTTP first, headless fallback if static result is thin. */
-      const topUrls = htmlResults
-        .filter(r => r.url && r.url.startsWith('http'))
-        .slice(0, 2);
+      /* ── Step 2: Static HTTP fetch of top 3 URLs ────────────────── */
+      const topUrls = htmlResults.filter(r => r.url?.startsWith('http')).slice(0, 3);
+      const staticPages = await Promise.race([
+        Promise.all(topUrls.map(r => staticFetch(r.url).then(text => ({ url: r.url, text })))),
+        new Promise(r => setTimeout(() => r([]), 9000)),
+      ]);
 
-      let richPages = [];
+      /* Classify pages as "rich" (> 300 useful chars) or "thin" */
+      const richPages  = staticPages.filter(p => p.text?.length > 300);
+      const thinUrls   = staticPages
+        .filter(p => !p.text || p.text.length <= 300)
+        .map(p => p.url)
+        .filter(Boolean);
 
-      if (flightQ && topUrls.length > 0) {
-        /* Flight queries need JS execution — go straight to headless */
-        console.log(`[agent] flight query: headless scrape → ${topUrls[0].url}`);
-        const headlessText = await Promise.race([
-          fetchPageTextHeadless(topUrls[0].url, 10000),
+      console.log(`[agent] static: ${richPages.length} rich, ${thinUrls.length} thin`);
+
+      /* ── Step 3: Headless Chrome for thin/missing pages ─────────── */
+      /* Try headless for all thin pages, run them sequentially to avoid
+         opening multiple Chrome instances at once.  Stop as soon as we
+         have at least 2 rich results. */
+      const headlessPages = [...richPages];
+      for (const url of thinUrls) {
+        if (headlessPages.length >= 2) break;
+        console.log(`[agent] headless: ${url}`);
+        const text = await Promise.race([
+          headlessFetch(url, 8000),
           new Promise(r => setTimeout(() => r(''), 22000)),
         ]);
-        if (headlessText.length > 50) {
-          richPages = [{ url: topUrls[0].url, text: headlessText }];
-          console.log(`[agent] headless: got ${headlessText.length} chars`);
+        if (text.length > 100) {
+          headlessPages.push({ url, text });
+          console.log(`[agent] headless: got ${text.length} chars`);
         } else {
-          console.log('[agent] headless: no useful content');
-        }
-      } else {
-        /* Non-flight: plain HTTP first */
-        const plainPages = await Promise.race([
-          Promise.all(topUrls.map(r => fetchPageText(r.url).then(text => ({ url: r.url, text })))),
-          new Promise(r => setTimeout(() => r([]), 8000)),
-        ]);
-        richPages = plainPages.filter(p => p.text && p.text.length > 100);
-        console.log(`[agent] fetched ${richPages.length}/${topUrls.length} pages (static)`);
-
-        /* Headless fallback if static was thin */
-        if (richPages.length === 0 && topUrls.length > 0) {
-          console.log(`[agent] headless fallback: ${topUrls[0].url}`);
-          const headlessText = await Promise.race([
-            fetchPageTextHeadless(topUrls[0].url, 3000),
-            new Promise(r => setTimeout(() => r(''), 18000)),
-          ]);
-          if (headlessText.length > 100) {
-            richPages = [{ url: topUrls[0].url, text: headlessText }];
-            console.log(`[agent] headless: got ${headlessText.length} chars`);
-          }
+          console.log('[agent] headless: thin result');
         }
       }
 
-      /* ── Build context — prepend flight data if available ── */
-      const hasResults  = !!flightData || (instant?.AbstractText) || htmlResults.length > 0 || richPages.length > 0;
-      let searchCtx = hasResults ? buildContext(userText, instant, htmlResults, richPages) : null;
-      if (flightData && searchCtx) {
-        searchCtx = flightData + '\n\n' + searchCtx;
-      } else if (flightData) {
-        searchCtx = flightData;
+      /* ── Step 4: Build context & call Claude ────────────────────── */
+      const hasContent = !!directApiData || !!instant?.AbstractText || htmlResults.length > 0 || headlessPages.length > 0;
+      let searchCtx = hasContent ? buildContext(userText, instant, htmlResults, headlessPages) : null;
+      if (directApiData) {
+        searchCtx = directApiData + (searchCtx ? '\n\n' + searchCtx : '');
       }
 
       const answer = await callHAI(userText, searchCtx, apiKey, model);
-
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ text: answer, searched: hasResults }));
+      res.end(JSON.stringify({ text: answer, searched: hasContent }));
 
     } catch (err) {
       console.error('[agent] error:', err.message);

@@ -27,6 +27,7 @@ joule-panel:defined,
   box-shadow:
     0px 0px 2px 0px rgba(91, 115, 139, 0.16),
     0px 32px 64px 0px rgba(91, 115, 139, 0.16);
+  /* standalone fallback — overridden to 100%/100% by .panel-wrapper from styles.css */
   width: 416px;
   height: 768px;
   overflow: hidden;
@@ -54,7 +55,7 @@ joule-panel:defined,
 /* header-container  3013:83762 */
 .header-container {
   display: flex;
-  height: 56px;
+  height: 72px;
   align-items: center;
   align-content: stretch;
   overflow: hidden;
@@ -137,7 +138,7 @@ joule-panel:defined,
 
 
 /* ═══════════════════════════════════════════════════════════════
-   joule-header  Figma: 3012:78213
+   joule-header  Figma: 3029:963351  "Pane Bar"
 ═══════════════════════════════════════════════════════════════ */
 
 /* host */
@@ -145,74 +146,56 @@ joule-header:defined,
 :host(joule-header) {
   display: flex;
   width: 100%;
-  height: 56px;
+  height: 72px;
   flex-shrink: 0;
   overflow: hidden;
   position: relative;
 }
 
-/* Header  3012:78213 */
+/* Pane Bar — 3029:963351 */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  align-content: stretch;
-  padding: 10px 8px;
+  padding: 12px 20px;
   width: 100%;
-  height: 56px;
+  height: 72px;
   flex-shrink: 0;
-  position: relative;
 }
 
-/* Caption  3012:78214 */
+/* Leading Slot — title */
 .caption {
   display: flex;
-  gap: 16px;
+  flex: 1 0 0;
+  min-width: 0;
   align-items: center;
-  align-content: stretch;
-  padding: 0 8px;
-  position: relative;
-  flex-shrink: 0;
 }
 
-/* Actions  3012:78217 */
+/* Trailing Slot — icon buttons */
 .actions {
   display: flex;
-  gap: 16px;
+  gap: 8px;
   align-items: center;
-  align-content: stretch;
-  padding: 0 8px;
-  position: relative;
   flex-shrink: 0;
 }
 
-/* icon pill buttons  3012:78215 / 78218 / 78219 */
+/* Circle icon buttons — 48×48, grey fill, border, r-48 */
 .icon-btn {
-  background: #f8f6ff;
   display: flex;
-  gap: 4px;
   align-items: center;
   justify-content: center;
-  align-content: stretch;
-  min-height: 26px;
-  padding: 8px;
-  border-radius: 16px;
-  flex-shrink: 0;
-  border: none;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  background: #f5f6f7;
+  border: 1px solid #bcc3ca;
+  border-radius: 48px;
   cursor: pointer;
-  position: relative;
-}
-
-.icon-btn:hover {
-  background: #ede9ff;
-}
-
-.icon-btn svg {
-  display: block;
-  width: 16px;
-  height: 16px;
   flex-shrink: 0;
 }
+
+.icon-btn:hover { background: #eaecee; }
+.icon-btn:active { background: #dfe1e3; }
 
 /* inline SAP icon wrapper — base (16×16) */
 .sap-icon {
@@ -232,16 +215,16 @@ joule-header:defined,
   flex-shrink: 0;
 }
 
-/* input toolbar icons */
+/* input toolbar action icons — Figma fill #1D2D3E */
 .sap-icon--input {
-  color: #5d36ff;
+  color: #1d2d3e;
 }
 
-/* mention chip × icon (12×12) */
+/* mention-tag chip × close — Figma fill #5D36FF */
 .sap-icon--chip {
   width: 10px;
   height: 10px;
-  color: #a100c2;
+  color: #5d36ff;
 }
 
 .sap-icon--chip svg {
@@ -249,53 +232,27 @@ joule-header:defined,
   height: 10px;
 }
 
-/* send / paper-plane icon (white on purple) */
+/* send — waveform icon (white on purple, rotated −90°) */
 .sap-icon--send {
   color: #ffffff;
 }
 
-/* 16×16 icon wrapper  3012:78218 / 78219 */
-.icon-16 {
-  overflow: hidden;
-  position: relative;
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-}
-
-.icon-16 > img {
-  position: absolute;
+.sap-icon--send svg {
   display: block;
-  max-width: none;
-  width: 100%;
-  height: 100%;
 }
 
-/* inset 18.75% for close icon  I3012:78219;103471:12234;101528:12394 */
-.icon-inset {
-  position: absolute;
-  inset: 18.75%;
-}
-
-.icon-inset > img {
-  position: absolute;
-  display: block;
-  max-width: none;
-  width: 100%;
-  height: 100%;
-}
-
-/* title  3012:78216 */
+/* title — 3029:963351 (20px bold, sapList_HeaderTextColor) */
 .title {
-  font-family: '72', 'SAP-icons', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: '72', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-weight: 700;
   font-style: normal;
-  font-size: 16px;
+  font-size: 20px;
   line-height: normal;
-  color: #5d36ff;
-  flex-shrink: 0;
+  color: #131e29;
   margin: 0;
-  position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 
@@ -320,7 +277,7 @@ joule-conversation-canvas:defined,
   display: flex;
   flex-direction: column;
   height: 100%;
-  width: 416px;
+  width: 100%;
   align-items: center;
   overflow-x: hidden;
   overflow-y: auto;
@@ -333,8 +290,8 @@ joule-conversation-canvas:defined,
 /* conversation-roll  3013:83852
    margin-top:auto anchors the roll to the bottom when conversation is short,
    while allowing full upward scroll when content overflows the container.
-   padding-bottom accounts for the absolute-positioned footer overlay (~140px):
-   message-input-container (8+76+8=92px) + gap (8px) + disclaimer (32px) = 132px + 8px buffer */
+   padding-bottom accounts for the absolute-positioned footer overlay:
+   message-input-container (8+108+8=124px) + gap (8px) + disclaimer (32px) = 164px + 8px buffer */
 .conversation-roll {
   display: flex;
   flex-direction: column;
@@ -344,7 +301,7 @@ joule-conversation-canvas:defined,
   flex-shrink: 0;
   width: 100%;
   margin-top: auto;
-  padding: 16px 16px 140px;
+  padding: 16px 16px 172px;
 }
 
 /* Timestamp  3013:83853 */
@@ -371,14 +328,14 @@ joule-conversation-canvas:defined,
   justify-content: center;
   position: relative;
   flex-shrink: 0;
-  width: 384px;
+  width: 100%;
 }
 
 /* User bubble */
 .user-bubble {
   background: #eae5ff;
   border: 1px solid #eae5ff;
-  max-width: 268px;
+  max-width: 65%;
   position: relative;
   border-radius: 20px 20px 0 20px;
   flex-shrink: 0;
@@ -390,7 +347,7 @@ joule-conversation-canvas:defined,
   align-items: flex-end;
   justify-content: center;
   padding: 8px 16px;
-  max-width: 268px;
+  max-width: 100%;
   overflow: clip;
   border-radius: inherit;
 }
@@ -401,7 +358,7 @@ joule-conversation-canvas:defined,
   font-size: 14px;
   line-height: normal;
   color: #131e29;
-  max-width: 236px;
+  max-width: 100%;
   position: relative;
   flex-shrink: 0;
   margin: 0;
@@ -423,7 +380,7 @@ joule-conversation-canvas:defined,
   overflow: visible;
   position: relative;
   flex-shrink: 0;
-  width: 384px;
+  width: 100%;
 }
 
 /* Response actions — absolutely positioned so they float over the gap between
@@ -488,7 +445,7 @@ joule-conversation-canvas:defined,
   overflow: clip;
   position: relative;
   flex-shrink: 0;
-  width: 384px;
+  width: 100%;
 }
 
 .loading-dots {
@@ -523,7 +480,8 @@ joule-conversation-canvas:defined,
   font-size: 14px;
   line-height: 20px;
   color: #223548;
-  width: 257px;
+  flex: 1;
+  min-width: 0;
   white-space: pre-wrap;
   position: relative;
   flex-shrink: 0;
@@ -532,7 +490,7 @@ joule-conversation-canvas:defined,
 
 
 /* ═══════════════════════════════════════════════════════════════
-   joule-message-input  Figma: 3013:83825
+   joule-message-input  Figma: 3030:1186805  "Input Field Glow"
 ═══════════════════════════════════════════════════════════════ */
 
 /* host */
@@ -543,251 +501,276 @@ joule-message-input:defined,
   flex-shrink: 0;
 }
 
-/* Input-field  3013:83825 */
-.input-field {
-  background: var(--joule-input-field-bg, white);
-  border: 2px solid #5d36ff;
+/* ── Outer container ─────────────────────────────────────────── */
+/* Figma 3030:1186805: frame height=100px
+   pt-[14px] px-[14px] pb-[10px] gap-[16px]
+   r-30, border rgba(93,54,255,.4), glow + inner white shadow    */
+.mi-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 8px 0;
-  position: relative;
-  border-radius: 20px;
+  gap: 16px;
+  padding: 14px 14px 10px;
+  border-radius: 30px;
+  border: 1px solid rgba(93, 54, 255, 0.4);
+  background: var(--sapBaseColor, #ffffff);
   box-shadow:
-    0px 0px 2px 0px rgba(93, 54, 255, 0.16),
-    0px 4px 8px 0px rgba(93, 54, 255, 0.16);
+    inset 0 0 0 2px #ffffff,
+    0px 0px 2px 0px rgba(120, 88, 255, 0.16),
+    0px 8px 16px 0px rgba(120, 88, 255, 0.10);
   width: 100%;
-  min-height: 76px;
+  box-sizing: border-box;
+  min-height: 108px;
 }
 
-/* message-entry  3013:83826 */
-.message-entry {
+/* ── Message Entry — 3030:1186806 ───────────────────────────── */
+/* Figma: backdrop-blur 10px, p-4, r-18 */
+.mi-entry {
   display: flex;
-  align-items: flex-start;
-  padding: 4px 12px;
-  position: relative;
-  flex-shrink: 0;
+  align-items: center;
+  padding: 4px;
+  border-radius: 18px;
   width: 100%;
+  flex-shrink: 0;
 }
 
-/* contenteditable editor — replaces static placeholder */
-.editor {
-  font-family: '72', sans-serif;
-  font-style: normal;
+/* contenteditable — italic gray placeholder style */
+.mi-editor {
+  font-family: '72', var(--sapFontFamily, sans-serif);
+  font-style: italic;
   font-weight: 400;
   font-size: 14px;
-  line-height: 1.5;
-  color: #1d2d3e;
+  line-height: 22px; /* entry 4+22+4=30px → inner 14+30+16+36+10=106px + 2px border = 108px total */
+  color: #556b82;
   width: 100%;
-  min-height: 22px;
-  max-height: 120px;
-  overflow-y: auto;
+  min-height: 14px;
+  /* no max-height — field grows upward; capped only by panel height */
+  overflow-y: visible;
   overflow-wrap: break-word;
   word-break: break-word;
   white-space: pre-wrap;
   outline: none;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(93, 54, 255, 0.2) transparent;
+  caret-color: #1d2d3e;
 }
 
-/* placeholder via CSS — shown when editor is empty */
-.editor:empty::before {
-  content: attr(data-placeholder);
+.mi-editor:empty::before {
+  content: attr(data-ph);
   color: #556b82;
   font-style: italic;
   pointer-events: none;
 }
 
-/* input-bar  3013:83829 */
-.input-bar {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  padding: 0 8px;
-  position: relative;
-  flex-shrink: 0;
-  width: 100%;
+/* when user types, switch text to normal style */
+.mi-editor:not(:empty) {
+  font-style: normal;
+  color: #1d2d3e;
 }
 
-/* actions  3013:83830 */
-.input-actions {
+/* ── Action Bar — 3030:1186808 ──────────────────────────────── */
+/* Figma Actions frame: y=54, height=36 */
+.mi-bar {
   display: flex;
-  gap: 4px;
-  height: 28px;
   align-items: center;
-  position: relative;
-  flex-shrink: 0;
+  justify-content: space-between;
+  width: 100%;
+  height: 36px;
 }
 
-/* transparent icon buttons  3013:83831 / 83833 / 83834 */
-.input-icon-btn {
+/* left group: add + arobase + mode-tag
+   Figma Left Actions: height=36, buttons at y=4 (centered within 36px) */
+.mi-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+}
+
+/* right group: microphone + send
+   Figma Trailing Actions: height=28 within 36px bar (centered) */
+.mi-trailing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+}
+
+/* ── Icon buttons (28×28, transparent, r-24) ─────────────────── */
+.mi-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 26px;
-  padding: 0 6px;
-  position: relative;
-  border-radius: 24px;
-  flex-shrink: 0;
   width: 28px;
   height: 28px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-}
-
-.input-icon-btn:hover {
-  background: rgba(93, 54, 255, 0.08);
-}
-
-.icon-wrap {
-  overflow: hidden;
-  position: relative;
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-}
-
-.icon-wrap > img {
-  position: absolute;
-  display: block;
-  max-width: none;
-  width: 100%;
-  height: 100%;
-}
-
-.icon-inset-6 {
-  position: absolute;
-  inset: 6.25%;
-}
-
-.icon-inset-6 > img,
-.icon-inset-mention > img {
-  position: absolute;
-  display: block;
-  max-width: none;
-  width: 100%;
-  height: 100%;
-}
-
-.icon-inset-mention {
-  position: absolute;
-  top: 0;
-  right: 0.13%;
-  bottom: 0.19%;
-  left: 0.06%;
-}
-
-/* mention chip close button */
-.mention-tag-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
   padding: 0;
+  border: none;
+  border-radius: 24px;
+  background: transparent;
   cursor: pointer;
   flex-shrink: 0;
 }
 
-/* @mention tag  3013:83835 */
-.mention-tag {
-  background: linear-gradient(
-    to right,
-    rgba(161, 0, 194, 0.1),
-    rgba(93, 54, 255, 0.1)
-  );
+.mi-btn:hover { background: rgba(93, 54, 255, 0.08); }
+.mi-btn:active { background: rgba(93, 54, 255, 0.14); }
+
+/* ── Filled action button — grey pill bg per Figma 3030:1186810 ─ */
+/* Used for the attach (+) button */
+.mi-btn--filled {
+  background: #f5f6f7;
+}
+.mi-btn--filled:hover { background: #eaecee; }
+.mi-btn--filled:active { background: #dfe1e3; }
+
+/* ── Send button (28×28, grey pill, r-24) — Figma 3030:1186815 ── */
+.mi-send {
   display: flex;
-  gap: 4px;
-  height: 28px;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
-  padding: 0 8px;
-  position: relative;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
   border-radius: 24px;
+  background: #f5f6f7;
+  cursor: pointer;
   flex-shrink: 0;
+  transition: background 0.12s, opacity 0.12s;
 }
 
-.mention-tag-label {
-  font-family: '72', sans-serif;
-  font-weight: 400;
-  font-style: normal;
-  line-height: normal;
-  position: relative;
-  flex-shrink: 0;
-  color: #a100c2;
-  font-size: 12px;
-  margin: 0;
+.mi-send:hover:not([disabled]) { background: #eaecee; }
+.mi-send[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+/* Active (has text) send button — solid #5d36ff pill, paper-plane icon (Figma 3036:1699177) */
+.mi-send--active {
+  background: var(--sapAssistant_Color1, #5d36ff);
+}
+.mi-send--active:hover { background: #4a2bdb; }
+.mi-send--active .mi-send-icon {
+  transform: none;                /* paper-plane needs no rotation */
+  --fill-0: white;                /* override SVG fill to white */
+}
+.mi-send--active .mi-send-icon svg path {
+  fill: white;
 }
 
-.mention-tag-icon-wrap {
-  overflow: hidden;
-  position: relative;
-  flex-shrink: 0;
-  width: 12px;
-  height: 12px;
-}
-
-.mention-tag-icon-inset {
-  position: absolute;
-  top: 18.86%;
-  right: 18.8%;
-  bottom: 18.73%;
-  left: 18.8%;
-}
-
-.mention-tag-icon-inset > img {
-  position: absolute;
-  display: block;
-  max-width: none;
-  width: 100%;
-  height: 100%;
-}
-
-/* ── Collapsed single-row state ── */
-
-/* Override input-field layout for compact mode */
-.input-field--collapsed {
-  flex-direction: row;
-  align-items: center;
-  min-height: 44px;
-  padding: 6px 8px;
-  gap: 0;
-}
-
-/* Single-row container: [actions] [placeholder] [send] */
-.collapsed-bar {
+/* ── SAP icon wrapper ───────────────────────────────────────── */
+.mi-icon {
   display: flex;
-  flex-direction: row;
   align-items: center;
-  width: 100%;
-  gap: 2px;
+  justify-content: center;
+  flex-shrink: 0;
+  pointer-events: none;
 }
 
-/* Flex-grow click/tap target — triggers expand */
-.collapsed-placeholder-area {
+.mi-icon svg {
+  display: block;
+}
+
+/* default 16×16 */
+.mi-icon--16 { width: 16px; height: 16px; }
+.mi-icon--16 svg { width: 16px; height: 16px; }
+
+.mi-icon--10 { width: 10px; height: 10px; }
+.mi-icon--10 svg { width: 10px; height: 10px; }
+
+/* size within buttons defaults to 16×16 */
+.mi-btn .mi-icon,
+.mi-send .mi-icon { width: 16px; height: 16px; }
+.mi-btn .mi-icon svg,
+.mi-send .mi-icon svg { width: 16px; height: 16px; }
+
+/* color modifier for inline SVG (microphone uses currentColor) */
+.mi-icon--violet { color: #5d36ff; }
+
+/* ── Inline SVG icon wrappers ───────────────────────────────── */
+/* Buttons contain inline SVGs directly — no extra wrapper needed.
+   SVGs have explicit width/height on the element itself.          */
+
+/* Chip leading icon span — wraps sap-icon://add-coursebook SVG */
+.mi-tag-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  pointer-events: none;
+  line-height: 0;
+}
+
+/* Send button icon — waveform rotated −90° to act as send arrow */
+.mi-send-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  pointer-events: none;
+  line-height: 0;
+  transform: rotate(-90deg);
+}
+
+/* ── ModeSwitch chip — 3030:1186793 ─────────────────────────── */
+/* bg #ded3ff, r-100px, gap 4 + extra 2px padding on all sides  */
+.mi-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  background: #ded3ff;
+  flex-shrink: 0;
+}
+
+.mi-tag-label {
+  font-family: '72', var(--sapFontFamily, sans-serif);
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 20px;
+  color: #5d36ff;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 96px;
+}
+
+.mi-tag-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ── Collapsed / single-row state ───────────────────────────── */
+/* Compact footer bar: 11px pt + 36px bar + 11px pb + 2px border = 60px */
+.mi-field--row {
+  flex-direction: row;
+  align-items: center;
+  min-height: 60px;
+  padding: 11px 14px;
+  gap: 4px;
+}
+
+.mi-field--row .mi-actions {
+  flex-shrink: 0;
+}
+
+.mi-placeholder-area {
   flex: 1;
   min-width: 0;
-  padding: 4px 6px;
-  cursor: text;
   display: flex;
   align-items: center;
+  padding: 0 4px;
+  cursor: text;
   background: transparent;
   border: none;
   outline: none;
-  border-radius: 8px;
 }
 
-.collapsed-placeholder-area:focus-visible {
-  outline: 2px solid rgba(93, 54, 255, 0.4);
-  outline-offset: 1px;
-}
-
-.collapsed-placeholder-text {
-  font-family: '72', sans-serif;
+.mi-placeholder-text {
+  font-family: '72', var(--sapFontFamily, sans-serif);
   font-style: italic;
   font-weight: 400;
   font-size: 14px;
@@ -798,48 +781,6 @@ joule-message-input:defined,
   pointer-events: none;
   -webkit-user-select: none;
   user-select: none;
-}
-
-/* send button (disabled)  2809:10595 */
-.send-btn {
-  background: var(--sapAssistant_Background, #5d36ff);
-  border: var(--sapButton_BorderWidth, 1px) solid var(--sapAssistant_BorderColor, #5d36ff);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 26px;
-  padding: 0 6px;
-  position: relative;
-  border-radius: 24px;
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  opacity: var(--sapContent_DisabledOpacity, 0.4);
-  cursor: not-allowed;
-}
-
-.send-icon-wrap {
-  overflow: hidden;
-  position: relative;
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-}
-
-.send-icon-inset {
-  position: absolute;
-  top: 6.25%;
-  right: 6.31%;
-  bottom: 6.25%;
-  left: 6.25%;
-}
-
-.send-icon-inset > img {
-  position: absolute;
-  display: block;
-  max-width: none;
-  width: 100%;
-  height: 100%;
 }
 
 
@@ -1096,7 +1037,7 @@ joule-disclaimer:defined,
   font-size: 11px;
   line-height: 12px;
   text-align: center;
-  width: 386px;
+  width: 100%;
   flex-shrink: 0;
   margin: 0;
 }

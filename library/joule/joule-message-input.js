@@ -52,9 +52,14 @@ const SAP_ICONS = {
     <path d="M256 320q-33 0-56.5-23.5T176 240V80q0-33 23.5-56.5T256 0t56.5 23.5T336 80v160q0 33-23.5 56.5T256 320zm-29-80q0 12 8.5 20.5T256 269t20.5-8.5T285 240V80q0-12-8.5-20.5T256 51t-20.5 8.5T227 80v160zm195-48q11 0 18.5 7.5T448 218q0 36-12.5 69t-35 60-53 44.5T282 414v72q0 11-7.5 18.5T256 512t-18.5-7.5T230 486v-72q-35-5-65.5-23t-53-44.5-35-59.5T64 218q0-11 7.5-18.5T90 192t18 7.5 7 18.5q0 28 11 55t30.5 47 45 32.5T256 365t54.5-12.5 45-32.5 30.5-47 11-55q0-11 7-18.5t18-7.5z" fill="var(--fill-0, #5D36FF)"/>
   </svg>`,
 
-  /* (6) sap-icon://waveform — 3 horizontal bars, rotated −90° for send */
+  /* (6) sap-icon://waveform — 3 horizontal bars, rotated −90° for send (default/disabled state) */
   waveform: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 13.2302 10.2401" width="16" height="13" fill="none" aria-hidden="true" focusable="false">
     <path d="M10.031 1.82694H3.19918C2.66043 1.82694 2.28571 1.37773 2.28571 0.913469C2.28571 0.444507 2.66984 0 3.19918 0L10.031 0C10.5274 0 10.9445 0.402182 10.9445 0.913469C10.9445 1.40595 10.5365 1.82694 10.031 1.82694ZM12.3167 6.0312H0.913469C0.402936 6.0312 0 5.61021 0 5.11773C0 4.62055 0.412342 4.20426 0.913469 4.20426H12.3167C12.8272 4.20426 13.2302 4.62995 13.2302 5.11773C13.2302 5.5961 12.8363 6.0312 12.3167 6.0312ZM10.031 10.2401H3.19918C2.64162 10.2401 2.28571 9.77214 2.28571 9.32669C2.28571 8.82014 2.70276 8.41323 3.19918 8.41323H10.031C10.5651 8.41323 10.9445 8.86247 10.9445 9.32669C10.9445 9.81447 10.5318 10.2401 10.031 10.2401Z" fill="var(--fill-0, #5D36FF)"/>
+  </svg>`,
+
+  /* sap-icon://paper-plane — enabled send button (Figma 3036:1699177, white on #5d36ff pill) */
+  'paper-plane': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="16" height="16" fill="none" aria-hidden="true" focusable="false">
+    <path d="M455 32q10 0 17.5 7.5T480 58q0 6-2 9L323 464q-7 16-24 16-8 0-14.5-4t-9.5-12l-64-164-163-65q-16-6-16-24 0-17 16-24L445 34q6-2 10-2zM127 212l97 39 126-125zm259-50L260 287l39 98z" fill="var(--fill-0, white)"/>
   </svg>`,
 
 };
@@ -311,12 +316,17 @@ class JouleMessageInput extends HTMLElement {
     const btn  = this.shadowRoot.querySelector('[data-act="send"]');
     const mic  = this.shadowRoot.querySelector('[data-act="voice"]');
     if (!btn) return;
+    const iconSpan = btn.querySelector('.mi-send-icon');
     if (this._value) {
       btn.removeAttribute('disabled');
-      if (mic) mic.style.display = 'none';        // hide mic while typing
+      btn.classList.add('mi-send--active');
+      if (iconSpan) iconSpan.innerHTML = SAP_ICONS['paper-plane']; // swap to paper-plane
+      if (mic) mic.style.display = 'none';
     } else {
       btn.setAttribute('disabled', '');
-      if (mic) mic.style.display = '';             // restore mic when empty
+      btn.classList.remove('mi-send--active');
+      if (iconSpan) iconSpan.innerHTML = SAP_ICONS.waveform;       // restore waveform
+      if (mic) mic.style.display = '';
     }
   }
 

@@ -242,6 +242,14 @@ class JouleConversationCanvas extends HTMLElement {
     return this.shadowRoot.getElementById('roll');
   }
 
+  /** Demote all existing .latest rows to "old" (hover-only actions), then mark newRow as latest */
+  _markLatest(newRow) {
+    const roll = this._roll();
+    if (!roll) return;
+    roll.querySelectorAll('.joule-message-row.latest').forEach((r) => r.classList.remove('latest'));
+    newRow.classList.add('latest');
+  }
+
   _scrollToBottom() {
     const container = this.shadowRoot.querySelector('.scrollable-conversation-container');
     if (container) container.scrollTop = container.scrollHeight;
@@ -370,6 +378,7 @@ class JouleConversationCanvas extends HTMLElement {
     /* Append response actions toolbar after streaming completes */
     const actions = document.createElement('joule-response-actions');
     messageRow.appendChild(actions);
+    this._markLatest(messageRow);
     this._scrollToBottom();
 
     this._streaming = false;
@@ -489,6 +498,7 @@ class JouleConversationCanvas extends HTMLElement {
     /* Append response actions toolbar */
     const actions = document.createElement('joule-response-actions');
     messageRow.appendChild(actions);
+    this._markLatest(messageRow);
     this._scrollToBottom();
 
     this._streaming = false;
@@ -637,6 +647,7 @@ class JouleConversationCanvas extends HTMLElement {
     /* Append response actions toolbar */
     const actionsEl = document.createElement('joule-response-actions');
     messageRow.appendChild(actionsEl);
+    this._markLatest(messageRow);
     this._scrollToBottom();
 
     this._streaming = false;

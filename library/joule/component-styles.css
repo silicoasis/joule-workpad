@@ -420,10 +420,24 @@ joule-conversation-canvas:defined,
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  overflow: hidden;
+  overflow: visible;
   position: relative;
   flex-shrink: 0;
   width: 384px;
+}
+
+/* Response actions — hidden by default on older rows, revealed on hover.
+   The .latest row keeps actions always visible (no transition needed). */
+.joule-message-row joule-response-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.joule-message-row:hover joule-response-actions,
+.joule-message-row.latest joule-response-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .joule-response {

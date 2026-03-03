@@ -15,6 +15,9 @@
 
 const http  = require('http');
 const https = require('https');
+const { chromium } = require('playwright-core');
+
+const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 const AGENT_PORT = parseInt(process.env.AGENT_PORT ?? '6657', 10);
 const HAI_RELAY_HOST = '127.0.0.1';
@@ -246,6 +249,58 @@ function extractText(html, maxChars) {
     .slice(0, maxChars);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   3c. Headless Chrome scrape — for JS-rendered pages
+       Returns text content after JavaScript executes (15 s hard cap)
+   ───────────────────────────────────────────────────────────────────────── */
+async function fetchPageTextHeadless(pageUrl, maxChars = 4000) {
+  let browser;
+  try {
+    browser = await chromium.launch({
+      executablePath: CHROME_PATH,
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    });
+    const page = await browser.newPage();
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+    await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 14000 });
+
+    /* Give JS tables extra time to populate with data */
+    await page.waitForTimeout(2500);
+
+    const text = await page.evaluate((max) => {
+      /* Try to extract flight table rows first */
+      const tables = document.querySelectorAll('table');
+      let tableText = '';
+      tables.forEach(t => {
+        const rows = Array.from(t.querySelectorAll('tr')).slice(0, 25);
+        rows.forEach(r => {
+          const cells = Array.from(r.querySelectorAll('td,th'))
+            .map(c => c.innerText?.trim())
+            .filter(Boolean)
+            .join('\t');
+          if (cells) tableText += cells + '\n';
+        });
+      });
+      if (tableText.length > 100) return ('[Flight table data]\n' + tableText).slice(0, max);
+
+      /* Fallback: full page text */
+      ['script','style','nav','footer','header','aside'].forEach(tag => {
+        document.querySelectorAll(tag).forEach(el => el.remove());
+      });
+      return (document.body?.innerText || document.body?.textContent || '')
+        .replace(/\s{2,}/g, ' ').trim().slice(0, max);
+    }, maxChars);
+
+    await browser.close();
+    return text;
+  } catch (err) {
+    console.error('[agent] headless error:', err.message.slice(0, 80));
+    try { await browser?.close(); } catch {}
+    return '';
+  }
+}
+
 function fetchPageText(pageUrl, maxChars = 2500, _depth = 0) {
   if (_depth > 2) return Promise.resolve('');
   const FETCH_TIMEOUT_MS = 5000;
@@ -471,16 +526,49 @@ const server = http.createServer((req, res) => {
       const htmlResults = parseDDG(html);
       console.log(`[agent] search: ${htmlResults.length} results, instant=${!!instant?.AbstractText}`);
 
-      /* Fetch page content from top 2 results with a combined 8s hard cap */
+      /* Fetch page content: for flight queries always use headless Chrome (JS-rendered data);
+         for other queries plain HTTP first, headless fallback if static result is thin. */
       const topUrls = htmlResults
         .filter(r => r.url && r.url.startsWith('http'))
         .slice(0, 2);
-      const pageContents = await Promise.race([
-        Promise.all(topUrls.map(r => fetchPageText(r.url).then(text => ({ url: r.url, text })))),
-        new Promise(r => setTimeout(() => r([]), 8000)),
-      ]);
-      const richPages = pageContents.filter(p => p.text && p.text.length > 100);
-      console.log(`[agent] fetched ${richPages.length}/${topUrls.length} pages`);
+
+      let richPages = [];
+
+      if (flightQ && topUrls.length > 0) {
+        /* Flight queries need JS execution — go straight to headless */
+        console.log(`[agent] flight query: headless scrape → ${topUrls[0].url}`);
+        const headlessText = await Promise.race([
+          fetchPageTextHeadless(topUrls[0].url, 4000),
+          new Promise(r => setTimeout(() => r(''), 20000)),
+        ]);
+        if (headlessText.length > 50) {
+          richPages = [{ url: topUrls[0].url, text: headlessText }];
+          console.log(`[agent] headless: got ${headlessText.length} chars`);
+        } else {
+          console.log('[agent] headless: no useful content');
+        }
+      } else {
+        /* Non-flight: plain HTTP first */
+        const plainPages = await Promise.race([
+          Promise.all(topUrls.map(r => fetchPageText(r.url).then(text => ({ url: r.url, text })))),
+          new Promise(r => setTimeout(() => r([]), 8000)),
+        ]);
+        richPages = plainPages.filter(p => p.text && p.text.length > 100);
+        console.log(`[agent] fetched ${richPages.length}/${topUrls.length} pages (static)`);
+
+        /* Headless fallback if static was thin */
+        if (richPages.length === 0 && topUrls.length > 0) {
+          console.log(`[agent] headless fallback: ${topUrls[0].url}`);
+          const headlessText = await Promise.race([
+            fetchPageTextHeadless(topUrls[0].url, 3000),
+            new Promise(r => setTimeout(() => r(''), 18000)),
+          ]);
+          if (headlessText.length > 100) {
+            richPages = [{ url: topUrls[0].url, text: headlessText }];
+            console.log(`[agent] headless: got ${headlessText.length} chars`);
+          }
+        }
+      }
 
       /* ── Build context — prepend flight data if available ── */
       const hasResults  = !!flightData || (instant?.AbstractText) || htmlResults.length > 0 || richPages.length > 0;

@@ -1,3 +1,19 @@
+/* highlight.js — lazy-loaded for multi-language syntax highlighting in code blocks       */
+let _hljsLib = null;
+async function _getHljs() {
+  if (_hljsLib) return _hljsLib;
+  try {
+    /* highlight.js@11 full ESM bundle — 190+ languages, auto-detection                  */
+    const m = await import('https://cdn.jsdelivr.net/npm/highlight.js@11/+esm');
+    _hljsLib = m.default;
+  } catch (e) {
+    console.warn('[canvas] highlight.js unavailable — code blocks will be unstyled', e.message);
+    /* no-op fallback */
+    _hljsLib = { highlightElement: () => {}, highlight: (c) => ({ value: c }) };
+  }
+  return _hljsLib;
+}
+
 /* marked.js — lazy-loaded on first streamMarkdown() call (never blocks canvas init)  */
 let _markedLib = null; // cached after first successful load
 async function _getMarked() {
@@ -233,6 +249,7 @@ class JouleConversationCanvas extends HTMLElement {
   _render() {
     this.shadowRoot.innerHTML = `
       <link rel="stylesheet" href="/library/joule/component-styles.css" />
+      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github-dark.min.css" />
 
       <div class="scrollable-conversation-container">
         <div class="conversation-roll" id="roll">
@@ -754,6 +771,12 @@ class JouleConversationCanvas extends HTMLElement {
     } catch {
       responseDiv.textContent = acc;
     }
+
+    /* Apply syntax highlighting to all fenced code blocks */
+    const hljs = await _getHljs();
+    responseDiv.querySelectorAll('pre code').forEach((el) => {
+      try { hljs.highlightElement(el); } catch { /* ignore */ }
+    });
 
     const actions = document.createElement('joule-response-actions');
     messageRow.appendChild(actions);

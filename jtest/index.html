@@ -87,6 +87,45 @@
       });
     })();
 
+    /* ── HAI Proxy (Anthropic/Claude via CORS relay → localhost:6655) ──────
+       Browser calls CORS relay at :6656 (hai-relay.js) which forwards to
+       the HAI proxy at :6655/anthropic/v1/messages.
+       Run:  node jtest/hai-relay.js   (before starting the app)
+       Falls back to mock responses when relay/proxy is unavailable.        */
+    const HAI = {
+      url:    'http://localhost:6656',      // CORS relay (hai-relay.js)
+      apiKey: '14615e0f-2fcb-4bb1-8b0a-4fd166743715',
+      model:  'anthropic--claude-4.5-haiku',
+    };
+
+    /**
+     * Call the HAI proxy and return the response text.
+     * Throws if the proxy is unreachable or returns an error.
+     */
+    async function callHAI(userText) {
+      const res = await fetch(HAI.url, {
+        method: 'POST',
+        headers: {
+          'x-api-key':         HAI.apiKey,
+          'Content-Type':      'application/json',
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model:     HAI.model,
+          max_tokens: 1024,
+          system: 'You are Joule, SAP\'s AI assistant. Be helpful, concise, and professional. ' +
+                  'Respond in 2–4 short plain-text paragraphs without any markdown formatting.',
+          messages: [{ role: 'user', content: userText }],
+        }),
+        signal: AbortSignal.timeout(20000), // 20 s timeout
+      });
+      if (!res.ok) throw new Error(`HAI proxy ${res.status}`);
+      const data = await res.json();
+      const text = data?.content?.[0]?.text ?? '';
+      if (!text) throw new Error('empty response');
+      return text;
+    }
+
     /* Wait for custom elements to be defined before wiring events */
     await Promise.all([
       customElements.whenDefined('joule-panel'),
@@ -97,31 +136,48 @@
     const canvas = document.getElementById('canvas');
     const input  = document.getElementById('input');
 
+    /* Mock fallback lines for plain-text responses */
+    const MOCK_TEXT_LINES = [
+      'Your current salary band is Grade 5, Band B, as defined in your employment contract dated January 2024, and is determined by your job grade and location cluster assignment.',
+      'The standard compensation range for this band is $72,000 to $88,000 per year, and your current base salary of $74,500 falls within that range.',
+      'The discrepancy you noticed on your latest paycheck is most likely related to the mid-year federal tax withholding adjustment that was applied in August, as well as the updated pension contribution rate that took effect on February 1st of this year.',
+      'Both changes were communicated in the HR bulletin issued in January.',
+      'I recommend reviewing the detailed payslip breakdown available in the SAP SuccessFactors self-service portal, where each deduction line is itemized clearly.',
+      'If after reviewing those details the figures still do not match your expectations, please raise a support ticket with HR Services and reference your employee ID for expedited processing — they typically resolve these within 2 business days.',
+    ];
+
     /* joule-send — keyword routing:
-       "table"  → table response
-       "code"   → code response
-       anything → text response                                              */
+       "table"  → table response  (always mock)
+       "code"   → code response   (always mock)
+       anything → HAI proxy first, mock fallback                            */
     input.addEventListener('joule-send', async (e) => {
       const { text, mention } = e.detail;
       canvas.addUserMessage(text, mention);
       canvas.showLoading('Connecting to Performance Assistant ...');
-      await new Promise(r => setTimeout(r, 1200));
 
       const kw = text.trim().toLowerCase();
 
       if (kw === 'table') {
+        await new Promise(r => setTimeout(r, 1200));
         await canvas.streamTableResponse();
+
       } else if (kw === 'code') {
+        await new Promise(r => setTimeout(r, 1200));
         await canvas.streamCodeResponse();
+
       } else {
-        await canvas.streamResponse([
-          'Your current salary band is Grade 5, Band B, as defined in your employment contract dated January 2024, and is determined by your job grade and location cluster assignment.',
-          'The standard compensation range for this band is $72,000 to $88,000 per year, and your current base salary of $74,500 falls within that range.',
-          'The discrepancy you noticed on your latest paycheck is most likely related to the mid-year federal tax withholding adjustment that was applied in August, as well as the updated pension contribution rate that took effect on February 1st of this year.',
-          'Both changes were communicated in the HR bulletin issued in January.',
-          'I recommend reviewing the detailed payslip breakdown available in the SAP SuccessFactors self-service portal, where each deduction line is itemized clearly.',
-          'If after reviewing those details the figures still do not match your expectations, please raise a support ticket with HR Services and reference your employee ID for expedited processing — they typically resolve these within 2 business days.',
-        ]);
+        /* Try HAI proxy — fall back to mock on any error */
+        let lines;
+        try {
+          const raw = await callHAI(text);
+          lines = raw.split(/\n+/).map(s => s.trim()).filter(Boolean);
+          if (!lines.length) throw new Error('empty');
+        } catch (err) {
+          console.warn('[HAI] proxy unavailable, using mock:', err.message);
+          await new Promise(r => setTimeout(r, 1200)); // simulate latency
+          lines = MOCK_TEXT_LINES;
+        }
+        await canvas.streamResponse(lines);
       }
     });
   </script>

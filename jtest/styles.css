@@ -31,9 +31,9 @@ html, body {
    so the panel always fills the wrapper at any resized dimension.
    ────────────────────────────────────────────────────────────── */
 .panel-wrapper {
-  /* default design size — matches Figma 3012:83760 */
-  width: 416px;
-  height: 768px;
+  /* default design size */
+  width: 600px;
+  height: 900px;
 
   /* position: relative so JS corner handles (position:absolute) anchor here */
   position: relative;

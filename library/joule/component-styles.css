@@ -28,8 +28,8 @@ joule-panel:defined,
     0px 0px 2px 0px rgba(91, 115, 139, 0.16),
     0px 32px 64px 0px rgba(91, 115, 139, 0.16);
   /* standalone fallback — overridden to 100%/100% by .panel-wrapper from styles.css */
-  width: 416px;
-  height: 768px;
+  width: 600px;
+  height: 900px;
   overflow: hidden;
   position: relative;
 }

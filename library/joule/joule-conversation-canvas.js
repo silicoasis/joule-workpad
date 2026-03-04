@@ -369,7 +369,7 @@ class JouleConversationCanvas extends HTMLElement {
     roll.style.paddingBottom = `${footerHeight + 8}px`;
   }
 
-  /* ── render static seed conversation ── */
+  /* ── render empty conversation canvas ── */
   _render() {
     this.shadowRoot.innerHTML = `
       <link rel="stylesheet" href="/library/joule/component-styles.css" />
@@ -378,46 +378,6 @@ class JouleConversationCanvas extends HTMLElement {
 
       <div class="scrollable-conversation-container">
         <div class="conversation-roll" id="roll">
-
-          <!-- Timestamp — 3013:83853 -->
-          <div class="timestamp">
-            <span class="bold">Today</span><span class="normal"> 8:00 AM</span>
-          </div>
-
-          <!-- User message #1 — 3013:83854 -->
-          <div class="user-message-row">
-            <div class="user-bubble">
-              <div class="user-bubble-inner">
-                <p>something is off with my pay stub</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Joule response — 3013:83855 -->
-          <div class="joule-message-row">
-            <div class="joule-response">
-              <p>I couldn't find anything related to your pay stub. As the Performance Assistant, I can help with:<br /><br /></p>
-              <ol start="1">
-                <li>Creating a strong performance goal</li>
-                <li>Preparing for your annual SAP Talk</li>
-                <li>Explaining performance &amp; compensation matrix</li>
-              </ol>
-              <br />
-              <p>Try changing to a different assistant, or edit your prompt based on my capabilities.</p>
-            </div>
-            <joule-response-actions sources="2"></joule-response-actions>
-          </div>
-
-          <!-- Loading animation — 3013:83868 -->
-          <div class="loading-row" id="loading-row">
-            <div class="loading-dots">
-              <div class="loading-dots-inner">
-                <img alt="" src="${LOADING_DOTS_SVG}" />
-              </div>
-            </div>
-            <p class="loading-text">Connecting to Performance Assistant ...</p>
-          </div>
-
         </div>
       </div>
     `;

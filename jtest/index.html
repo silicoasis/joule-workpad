@@ -258,11 +258,13 @@
       void input.offsetHeight;
 
       /* ── Step 5: PLAY — release to final position ── */
-      input.style.transition = 'transform 500ms ease-in-out';
+      /* cubic-bezier(0.4, 0, 0.2, 1) = Material "Standard" easing — slow start,
+         fast middle, gentle ease-out for a buttery smooth landing              */
+      input.style.transition = 'transform 800ms cubic-bezier(0.4, 0, 0.2, 1)';
       input.style.transform  = 'none';
 
-      /* Fade welcome out simultaneously */
-      welcome.style.transition = 'opacity 400ms ease-in-out';
+      /* Fade welcome out over the full duration simultaneously */
+      welcome.style.transition = 'opacity 800ms cubic-bezier(0.4, 0, 0.2, 1)';
       welcome.style.opacity    = '0';
 
       /* After animation, swap content and clean up */
@@ -274,7 +276,7 @@
         input.style.transition   = '';
         input.style.transform    = '';
         if (footerEl) footerEl.style.background = '';
-      }, 500);
+      }, 800);
     }
 
     /* joule-suggest — chip click: populate input and send */

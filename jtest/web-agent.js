@@ -410,6 +410,13 @@ function buildContext(query, instant, htmlResults, pageContents) {
    5.  Call HAI relay (Claude)
    ═════════════════════════════════════════════════════════════════════════ */
 function callHAI(userText, searchCtx, apiKey, model) {
+  const MATH_RULE = '\nMATH FORMATTING: For ALL mathematical expressions, formulas, and equations, ' +
+    'always use LaTeX notation — $$...$$ for display/block equations (on their own line) and $...$ for ' +
+    'inline math within text. Use proper LaTeX commands: \\frac, \\sum, \\int, \\partial, \\nabla, ' +
+    '\\sqrt, \\vec, \\hat, \\cdot, \\times, \\otimes, \\mu, \\nu, \\alpha, \\beta, \\gamma, \\delta, ' +
+    '\\epsilon, \\Psi, \\Phi, \\Lambda, \\Omega, \\hbar, \\mathbf, \\mathrm, etc. ' +
+    'NEVER write equations as plain text — always use $$ $$ or $ $ delimiters.';
+
   const system = searchCtx
     ? 'You are Joule, an AI assistant with real-time web access. ' +
       'A live web search was performed for this query and the results are below. ' +
@@ -420,10 +427,11 @@ function callHAI(userText, searchCtx, apiKey, model) {
       '4. The "Fetched page content" below is LIVE data scraped in real-time from the source website right now. Treat it as authoritative current data.\n' +
       '5. NEVER say "here is a sample", "here are some", "partial list", or similar hedging phrases. Present ALL the data you have as the current real-time result.\n' +
       '6. If the data contains a schedule or list, format it as a markdown table and show EVERY entry without omitting any.\n' +
-      '7. Use actual names, numbers, dates, and facts from the results — never generic descriptions.\n\n' +
+      '7. Use actual names, numbers, dates, and facts from the results — never generic descriptions.\n' +
+      MATH_RULE + '\n\n' +
       searchCtx
     : 'You are Joule, an AI assistant. Be helpful, concise, and professional. ' +
-      'Use markdown formatting where appropriate.';
+      'Use markdown formatting where appropriate.' + MATH_RULE;
 
   const payload = JSON.stringify({
     model:      model || DEFAULT_MODEL,

@@ -169,7 +169,12 @@
           model:      HAI.model,
           max_tokens: 1024,
           system: 'You are Joule, SAP\'s AI assistant. Be helpful, concise, and professional. ' +
-                  'Use markdown formatting where appropriate: headings, bold, lists, code blocks, tables.',
+                  'Use markdown formatting where appropriate: headings, bold, lists, code blocks, tables. ' +
+                  'MATH FORMATTING: For ALL mathematical expressions, formulas, and equations, always use ' +
+                  'LaTeX notation — $$...$$ for display/block equations (on their own line) and $...$ for ' +
+                  'inline math within text. Use proper LaTeX commands such as \\frac, \\sum, \\int, \\partial, ' +
+                  '\\nabla, \\sqrt, \\vec, \\hat, \\cdot, \\times, \\mu, \\nu, \\alpha, \\beta, \\gamma, ' +
+                  '\\hbar, \\mathbf, \\mathrm, etc. NEVER write equations as plain text.',
           messages: [{ role: 'user', content: userText }],
         }),
         signal: AbortSignal.timeout(20000),

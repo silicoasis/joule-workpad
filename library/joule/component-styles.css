@@ -572,6 +572,36 @@ joule-conversation-canvas:defined,
 }
 .joule-response--md a:hover { color: #4a2bdb; }
 
+/* ── KaTeX math typography ─────────────────────────────────────────────── */
+/* Display (block) math — centred, scrollable horizontally for wide equations */
+.joule-response--md .katex-display {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 0.6em 0;
+  padding: 0.25em 0;
+  text-align: center;
+}
+
+/* Slightly larger base font for readability inside the narrow panel */
+.joule-response--md .katex {
+  font-size: 1.12em;
+  line-height: normal;
+}
+
+/* Paragraphs that contain only display math — remove default p margin and allow h-scroll */
+.joule-response--md p:has(> .katex-display:only-child) {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 2px 0 10px;
+}
+
+/* Inline math — keep aligned with surrounding text */
+.joule-response--md .katex-inline,
+.joule-response--md :not(.katex-display) > .katex {
+  vertical-align: baseline;
+}
+
 /* Mermaid diagram wrapper */
 .mermaid-diagram {
   margin: 8px 0;

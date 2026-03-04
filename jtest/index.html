@@ -87,6 +87,60 @@
       });
     })();
 
+    /* ── Drag by header ────────────────────────────────────────────────────
+       Mousedown on joule-header starts a drag. On first drag the wrapper is
+       switched from flex-centered to position:fixed at its current screen
+       coordinates so it can be moved freely. Corner-resize still works after.
+    ── */
+    (function () {
+      const wrapper = document.querySelector('.panel-wrapper');
+      const header  = document.querySelector('joule-header');
+      if (!wrapper || !header) return;
+
+      header.style.cursor = 'grab';
+
+      header.addEventListener('mousedown', (e) => {
+        /* Skip if the user clicked an interactive element inside the shadow */
+        const interactive = e.composedPath().some(el =>
+          el instanceof Element &&
+          (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT' ||
+           el.getAttribute?.('role') === 'button')
+        );
+        if (interactive) return;
+
+        e.preventDefault();
+
+        /* First drag: freeze position at current screen location */
+        if (wrapper.style.position !== 'fixed') {
+          const r = wrapper.getBoundingClientRect();
+          wrapper.style.position = 'fixed';
+          wrapper.style.left     = r.left + 'px';
+          wrapper.style.top      = r.top  + 'px';
+          wrapper.style.margin   = '0';
+          /* Neutralise body flex-centering so it no longer repositions the wrapper */
+          document.body.style.alignItems     = 'flex-start';
+          document.body.style.justifyContent = 'flex-start';
+        }
+
+        header.style.cursor = 'grabbing';
+        const sx = e.clientX, sy = e.clientY;
+        const sl = parseFloat(wrapper.style.left) || 0;
+        const st = parseFloat(wrapper.style.top)  || 0;
+
+        const onMove = (ev) => {
+          wrapper.style.left = (sl + ev.clientX - sx) + 'px';
+          wrapper.style.top  = (st + ev.clientY - sy) + 'px';
+        };
+        const onUp = () => {
+          header.style.cursor = 'grab';
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup',   onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup',   onUp);
+      });
+    })();
+
     /* ── HAI Proxy (Anthropic/Claude via CORS relay → localhost:6655) ──────
        Browser calls CORS relay at :6656 (hai-relay.js) which forwards to
        the HAI proxy at :6655/anthropic/v1/messages.

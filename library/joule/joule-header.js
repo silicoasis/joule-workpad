@@ -1,35 +1,37 @@
 /**
  * <joule-header> — Joule panel header component
- * Figma: node 3012:78213
+ * Figma: node 3029:963351  "Pane Bar"
  *
  * Attributes:
  *   title  {string}  Panel title text (default: "")
  *
- * Dispatched events:
- *   joule-menu       — hamburger button clicked
- *   joule-fullscreen — fullscreen button clicked
- *   joule-close      — close button clicked
+ * Dispatched events (bubble + composed):
+ *   joule-overflow  — more-options button clicked
+ *   joule-share     — share button clicked
  *
- * Icons: SAP icons from @ui5/webcomponents-icons v5 (Horizon theme)
- *   sap-icon://menu2, sap-icon://full-screen, sap-icon://decline
- *   Inlined as SVG so fill="currentColor" inherits the CSS color.
+ * Icons: SAP Horizon assets from Figma node 3029:963351
+ *   (1) sap-icon://add-coursebook  → 4b17463c...svg  (overflow / more)
+ *   (2) sap-icon://share-2         → 8b7f254d...svg  (share)
  *
  * Styles: /library/joule/component-styles.css
  */
 
-/* SAP icon path data — @ui5/webcomponents-icons v5 / Horizon theme */
-const SAP_ICONS = {
-  menu2: `<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-    <path d="M486 115H26q-11 0-18.5-7T0 90t7.5-18.5T26 64h460q11 0 18.5 7.5T512 90t-7.5 18-18.5 7zm0 167H26q-11 0-18.5-7.5T0 256t7.5-18.5T26 230h460q11 0 18.5 7.5T512 256t-7.5 18.5T486 282zm0 166H26q-11 0-18.5-7.5T0 422t7.5-18 18.5-7h460q11 0 18.5 7t7.5 18-7.5 18.5T486 448z"/>
+/* Inline SVG icon data — avoids img-sizing issues with viewBox-only SVGs
+   that use width="100%"/height="100%" and preserveAspectRatio="none" */
+const HEADER_ICONS = {
+
+  /* sap-icon://add-coursebook — overflow / three dots   viewBox 0 0 16 4
+     fill: #5d36ff  (Joule brand purple — CSS var --fill-0 in Figma) */
+  overflow: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 4" width="16" height="4" fill="none">
+    <path d="M2 0C3.10457 0 4 0.89543 4 2C4 3.10457 3.10457 4 2 4C0.89543 4 0 3.10457 0 2C0 0.89543 0.89543 0 2 0ZM8 0C9.10457 0 10 0.89543 10 2C10 3.10457 9.10457 4 8 4C6.89543 4 6 3.10457 6 2C6 0.89543 6.89543 0 8 0ZM14 0C15.1046 0 16 0.89543 16 2C16 3.10457 15.1046 4 14 4C12.8954 4 12 3.10457 12 2C12 0.89543 12.8954 0 14 0Z" fill="#5d36ff"/>
   </svg>`,
 
-  fullscreen: `<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-    <path d="M486 0q11 0 18.5 7.5T512 26v108q0 11-7.5 18.5T486 160t-18-7.5-7-18.5V87l-97 97q-8 8-18 8-11 0-18.5-7.5T320 166q0-10 8-18l97-97h-47q-11 0-18.5-7T352 26t7.5-18.5T378 0h108zM230 32q11 0 18.5 7.5T256 58t-7.5 18-18.5 7H90q-7 0-7 7v140q0 11-7 18.5T58 256t-18.5-7.5T32 230V90q0-24 17-41t41-17h140zm224 224q11 0 18.5 7.5T480 282v140q0 24-17 41t-41 17H282q-11 0-18.5-7.5T256 454t7.5-18 18.5-7h140q7 0 7-7V282q0-11 7-18.5t18-7.5zm-306 71q7-7 18-7t18.5 7.5T192 346t-7 18l-98 97h47q11 0 18.5 7t7.5 18-7.5 18.5T134 512H26q-11 0-18.5-7.5T0 486V378q0-11 7.5-18.5T26 352t18 7.5 7 18.5v47z"/>
+  /* sap-icon://share-2 — share   viewBox 0 0 16 16
+     fill: #5d36ff  (Joule brand purple — CSS var --fill-0 in Figma) */
+  share: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="none">
+    <path d="M13 0C14.6569 0 16 1.34315 16 3C16 4.65685 14.6569 6 13 6C11.9739 6 11.0693 5.48404 10.5283 4.69824L5.84082 7.04199C6.04372 7.64389 6.0625 8.31641 5.84082 8.95703L10.5283 11.3008C11.0693 10.5154 11.9742 10 13 10C14.6569 10 16 11.3431 16 13C16 14.6569 14.6569 16 13 16C11.3431 16 10 14.6569 10 13C10 12.9055 10.0041 12.812 10.0127 12.7197L5.0127 10.2197C4.48016 10.7029 3.77569 11 3 11C1.34315 11 0 9.65685 0 8C0 6.34315 1.34315 5 3 5C3.77546 5 4.48022 5.2964 5.0127 5.7793L10.0127 3.2793C10.0042 3.18734 10 3.09417 10 3C10 1.34315 11.3431 0 13 0ZM13 11.5C12.1716 11.5 11.5 12.1716 11.5 13C11.5 13.8284 12.1716 14.5 13 14.5C13.8284 14.5 14.5 13.8284 14.5 13C14.5 12.1716 13.8284 11.5 13 11.5ZM3 6.5C2.17157 6.5 1.5 7.17157 1.5 8C1.5 8.82843 2.17157 9.5 3 9.5C3.82843 9.5 4.5 8.82843 4.5 8C4.5 7.17157 3.82843 6.5 3 6.5ZM13 1.5C12.1716 1.5 11.5 2.17157 11.5 3C11.5 3.82843 12.1716 4.5 13 4.5C13.8284 4.5 14.5 3.82843 14.5 3C14.5 2.17157 13.8284 1.5 13 1.5Z" fill="#5d36ff"/>
   </svg>`,
 
-  decline: `<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-    <path d="M292 256l117 116q7 7 7 18 0 12-7.5 19t-18.5 7q-10 0-18-8L256 292 140 408q-8 8-18 8-11 0-18.5-7.5T96 390q0-10 8-18l116-116-116-116q-8-8-8-18 0-11 7.5-18.5T122 96t18 7l116 117 116-117q7-7 18-7t18.5 7.5T416 122t-7 18z"/>
-  </svg>`,
 };
 
 class JouleHeader extends HTMLElement {
@@ -58,32 +60,25 @@ class JouleHeader extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <link rel="stylesheet" href="/library/joule/component-styles.css" />
 
+      <!-- Pane Bar — 3029:963351 -->
       <div class="header">
 
-        <!-- Caption — 3012:78214 -->
+        <!-- Leading Slot — title only -->
         <div class="caption">
-
-          <!-- nav-button (sap-icon://menu2) — 3012:78215 -->
-          <button class="icon-btn" data-action="menu" title="Menu" aria-label="Menu">
-            <span class="sap-icon">${SAP_ICONS.menu2}</span>
-          </button>
-
-          <!-- title — 3012:78216 -->
           <p class="title">${this._esc(title)}</p>
-
         </div>
 
-        <!-- Actions — 3012:78217 -->
+        <!-- Trailing Slot — two circle icon buttons -->
         <div class="actions">
 
-          <!-- fullscreen (sap-icon://full-screen) — 3012:78218 -->
-          <button class="icon-btn" data-action="fullscreen" title="Full screen" aria-label="Full screen">
-            <span class="sap-icon">${SAP_ICONS.fullscreen}</span>
+          <!-- (1) sap-icon://add-coursebook — overflow / more options -->
+          <button class="icon-btn" data-action="overflow" title="More options" aria-label="More options">
+            ${HEADER_ICONS.overflow}
           </button>
 
-          <!-- close (sap-icon://decline) — 3012:78219 -->
-          <button class="icon-btn" data-action="close" title="Close" aria-label="Close">
-            <span class="sap-icon">${SAP_ICONS.decline}</span>
+          <!-- (2) sap-icon://share-2 — share -->
+          <button class="icon-btn" data-action="share" title="Share" aria-label="Share">
+            ${HEADER_ICONS.share}
           </button>
 
         </div>
@@ -101,7 +96,6 @@ class JouleHeader extends HTMLElement {
     });
   }
 
-  /** Escape HTML special characters to prevent XSS in attribute values */
   _esc(str) {
     return String(str)
       .replace(/&/g, '&amp;')

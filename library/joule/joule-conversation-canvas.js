@@ -13,30 +13,70 @@ async function _getKatex() {
 }
 
 /**
- * Walk a rendered HTML container and typeset any TeX math delimiters:
- *   $$...$$  →  display (block) math
- *   $...$    →  inline math  (not triggered for bare prices like $42)
+ * Extract all math expressions from raw markdown text before marked.js sees them.
+ * Replaces each expression with a unique opaque placeholder so marked cannot
+ * mangle LaTeX backslashes, underscores, asterisks, etc.
+ *
+ * Supported delimiters (in priority order):
+ *   $$...$$   display math
+ *   \[...\]   display math  (LaTeX standard)
+ *   $...$     inline math   (bare prices like $42 are skipped)
+ *   \(...\)   inline math   (LaTeX standard)
+ *
+ * Returns { text, slots } where slots is an array of { id, expr, display }.
  */
-function _renderMathInElement(container, katex) {
-  if (!katex || !container) return;
-  /* Operate on innerHTML — fast, and avoids serialising/walking the full DOM tree */
-  let html = container.innerHTML;
-  /* ── 1. display math: $$...$$ ──────────────────────────────────────────── */
-  html = html.replace(/\$\$([\s\S]*?)\$\$/g, (_, expr) => {
-    try {
-      return katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false });
-    } catch { return _; }
+function _extractMath(raw) {
+  const slots = [];
+  const mkId = (i, disp) => `\x02MATH${disp ? 'D' : 'I'}${i}\x03`;
+
+  let text = raw;
+
+  /* 1. $$...$$ — display */
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_, expr) => {
+    const id = mkId(slots.length, true);
+    slots.push({ id, expr, display: true });
+    return id;
   });
-  /* ── 2. inline math: $...$  ─────────────────────────────────────────────
-     Exclude: starts with digit (price like $42), empty, longer than 500 chars */
-  html = html.replace(/\$([^\$\n]{1,500}?)\$/g, (match, expr) => {
+
+  /* 2. \[...\] — display */
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, expr) => {
+    const id = mkId(slots.length, true);
+    slots.push({ id, expr, display: true });
+    return id;
+  });
+
+  /* 3. $...$ — inline (skip bare prices: $42, $1,200) */
+  text = text.replace(/\$([^\$\n\x02\x03]{1,600}?)\$/g, (match, expr) => {
     const t = expr.trim();
-    if (!t || /^\d/.test(t)) return match; /* skip bare prices */
-    try {
-      return katex.renderToString(t, { displayMode: false, throwOnError: false });
-    } catch { return match; }
+    if (!t || /^\d/.test(t)) return match;
+    const id = mkId(slots.length, false);
+    slots.push({ id, expr, display: false });
+    return id;
   });
-  container.innerHTML = html;
+
+  /* 4. \(...\) — inline */
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, expr) => {
+    const id = mkId(slots.length, false);
+    slots.push({ id, expr, display: false });
+    return id;
+  });
+
+  return { text, slots };
+}
+
+/**
+ * Replace math placeholders in rendered HTML with KaTeX-typeset HTML.
+ * Falls back to <code>raw expr</code> when KaTeX is unavailable.
+ */
+function _restoreMath(html, slots, katex) {
+  for (const { id, expr, display } of slots) {
+    const rendered = katex
+      ? katex.renderToString(expr.trim(), { displayMode: display, throwOnError: false })
+      : `<code>${expr.replace(/</g, '&lt;')}</code>`;
+    /* id may have been HTML-entity-encoded by marked; also try raw */
+    html = html.split(id).join(rendered);
+  }
+  return html;
 }
 
 /* mermaid — lazy-loaded for flowchart/diagram rendering in code blocks                  */
@@ -860,18 +900,16 @@ class JouleConversationCanvas extends HTMLElement {
       }
     }
 
-    /* Final render — no cursor */
+    /* Final render — extract math BEFORE marked sees it, then restore via KaTeX */
+    const { text: protectedText, slots } = _extractMath(acc);
     try {
-      responseDiv.innerHTML = md.parse(acc);
+      responseDiv.innerHTML = _restoreMath(md.parse(protectedText), slots, katex);
     } catch {
       responseDiv.textContent = acc;
     }
 
     /* Final syntax highlighting pass */
     _applyHljs(responseDiv);
-
-    /* Typeset any LaTeX/TeX math expressions (KaTeX) */
-    _renderMathInElement(responseDiv, katex);
 
     /* Render any mermaid diagrams (flowcharts, sequences, etc.) */
     await _renderMermaidBlocks(responseDiv);

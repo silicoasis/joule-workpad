@@ -32,7 +32,7 @@ html, body {
    ────────────────────────────────────────────────────────────── */
 .panel-wrapper {
   /* default design size */
-  width: 600px;
+  width: 500px;
   height: 900px;
 
   /* position: relative so JS corner handles (position:absolute) anchor here */

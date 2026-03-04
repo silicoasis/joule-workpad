@@ -221,12 +221,60 @@
     const welcome = document.getElementById('welcome');
     const input   = document.getElementById('input');
 
-    /** Switch from welcome screen to conversation canvas (once). */
+    const panelEl = document.querySelector('joule-panel');
+
+    /**
+     * Switch from welcome screen to conversation canvas.
+     * Runs a 500ms FLIP animation: input slides from its welcome position
+     * down to the panel footer, while the welcome content fades out.
+     */
     function showCanvas() {
-      if (welcome.style.display !== 'none') {
-        welcome.style.display = 'none';
-        canvas.style.display  = '';
-      }
+      if (welcome.style.display === 'none') return; // already in canvas mode
+
+      /* ── Step 1: FIRST — capture input rect in welcome position ── */
+      const firstRect = input.getBoundingClientRect();
+
+      /* ── Step 2: Move input to panel footer slot ── */
+      input.setAttribute('slot', 'message-input');
+      panelEl.appendChild(input);
+
+      /* ── Step 3: LAST — capture input rect in footer position ── */
+      const lastRect = input.getBoundingClientRect();
+
+      /* ── Step 4: INVERT — translate input visually back to firstRect ── */
+      const dy = firstRect.top  - lastRect.top;
+      const dx = firstRect.left - lastRect.left;
+
+      input.style.transition = 'none';
+      input.style.transform  = 'translate(' + dx + 'px, ' + dy + 'px)';
+
+      /* Make footer background transparent during flight so panel bg shows */
+      const footerEl = panelEl.shadowRoot
+        ? panelEl.shadowRoot.querySelector('.footer')
+        : null;
+      if (footerEl) footerEl.style.background = 'transparent';
+
+      /* Force reflow so the inverted transform takes effect before animating */
+      void input.offsetHeight;
+
+      /* ── Step 5: PLAY — release to final position ── */
+      input.style.transition = 'transform 500ms ease-in-out';
+      input.style.transform  = 'none';
+
+      /* Fade welcome out simultaneously */
+      welcome.style.transition = 'opacity 400ms ease-in-out';
+      welcome.style.opacity    = '0';
+
+      /* After animation, swap content and clean up */
+      setTimeout(() => {
+        welcome.style.display    = 'none';
+        welcome.style.opacity    = '';
+        welcome.style.transition = '';
+        canvas.style.display     = '';
+        input.style.transition   = '';
+        input.style.transform    = '';
+        if (footerEl) footerEl.style.background = '';
+      }, 500);
     }
 
     /* joule-suggest — chip click: populate input and send */

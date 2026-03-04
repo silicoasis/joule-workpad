@@ -1281,9 +1281,9 @@ joule-welcome:defined,
   width: 100%;
 }
 
-/* Slotted message-input inside welcome — full width */
+/* Slotted message-input inside welcome — full width with 16px side margins */
 .welcome-suggestions ::slotted([slot="input"]) {
-  width: 100%;
+  width: calc(100% - 32px);
 }
 
 /* Chips row — flex-wrap, centred */

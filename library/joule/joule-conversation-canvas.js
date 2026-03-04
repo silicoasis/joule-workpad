@@ -1,3 +1,44 @@
+/* KaTeX — lazy-loaded for mathematical expression rendering (TeX/LaTeX → HTML)          */
+let _katexLib = null;
+async function _getKatex() {
+  if (_katexLib) return _katexLib;
+  try {
+    const m = await import('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.mjs');
+    _katexLib = m.default;
+  } catch (e) {
+    console.warn('[canvas] KaTeX unavailable — math expressions will be shown as raw text', e.message);
+    _katexLib = null;
+  }
+  return _katexLib;
+}
+
+/**
+ * Walk a rendered HTML container and typeset any TeX math delimiters:
+ *   $$...$$  →  display (block) math
+ *   $...$    →  inline math  (not triggered for bare prices like $42)
+ */
+function _renderMathInElement(container, katex) {
+  if (!katex || !container) return;
+  /* Operate on innerHTML — fast, and avoids serialising/walking the full DOM tree */
+  let html = container.innerHTML;
+  /* ── 1. display math: $$...$$ ──────────────────────────────────────────── */
+  html = html.replace(/\$\$([\s\S]*?)\$\$/g, (_, expr) => {
+    try {
+      return katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false });
+    } catch { return _; }
+  });
+  /* ── 2. inline math: $...$  ─────────────────────────────────────────────
+     Exclude: starts with digit (price like $42), empty, longer than 500 chars */
+  html = html.replace(/\$([^\$\n]{1,500}?)\$/g, (match, expr) => {
+    const t = expr.trim();
+    if (!t || /^\d/.test(t)) return match; /* skip bare prices */
+    try {
+      return katex.renderToString(t, { displayMode: false, throwOnError: false });
+    } catch { return match; }
+  });
+  container.innerHTML = html;
+}
+
 /* mermaid — lazy-loaded for flowchart/diagram rendering in code blocks                  */
 let _mermaidLib = null;
 let _mermaidInit = false;
@@ -293,6 +334,7 @@ class JouleConversationCanvas extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <link rel="stylesheet" href="/library/joule/component-styles.css" />
       <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github-dark.min.css" />
+      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
 
       <div class="scrollable-conversation-container">
         <div class="conversation-roll" id="roll">
@@ -784,8 +826,8 @@ class JouleConversationCanvas extends HTMLElement {
     roll.appendChild(messageRow);
     this._scrollToBottom();
 
-    /* Preload both libs concurrently before streaming starts — cached after first call */
-    const [md, hljs] = await Promise.all([_getMarked(), _getHljs()]);
+    /* Preload all libs concurrently before streaming starts — cached after first call */
+    const [md, hljs, katex] = await Promise.all([_getMarked(), _getHljs(), _getKatex()]);
 
     /* Helper: highlight all <pre><code> blocks inside a container
        — skip mermaid blocks (those get rendered as SVG diagrams instead) */
@@ -827,6 +869,9 @@ class JouleConversationCanvas extends HTMLElement {
 
     /* Final syntax highlighting pass */
     _applyHljs(responseDiv);
+
+    /* Typeset any LaTeX/TeX math expressions (KaTeX) */
+    _renderMathInElement(responseDiv, katex);
 
     /* Render any mermaid diagrams (flowcharts, sequences, etc.) */
     await _renderMermaidBlocks(responseDiv);

@@ -17,7 +17,9 @@
       <joule-header slot="header" title="Conversation Title"></joule-header>
 
       <!-- content slot — 3013:83766 -->
-      <joule-conversation-canvas slot="content" id="canvas"></joule-conversation-canvas>
+      <!-- welcome screen shown by default; swapped for canvas on first message -->
+      <joule-welcome slot="content" id="welcome"></joule-welcome>
+      <joule-conversation-canvas slot="content" id="canvas" style="display:none"></joule-conversation-canvas>
 
       <!-- message-input slot — 3013:83765 -->
       <joule-message-input
@@ -211,10 +213,38 @@
       customElements.whenDefined('joule-panel'),
       customElements.whenDefined('joule-conversation-canvas'),
       customElements.whenDefined('joule-message-input'),
+      customElements.whenDefined('joule-welcome'),
     ]);
 
-    const canvas = document.getElementById('canvas');
-    const input  = document.getElementById('input');
+    const canvas  = document.getElementById('canvas');
+    const welcome = document.getElementById('welcome');
+    const input   = document.getElementById('input');
+
+    /** Switch from welcome screen to conversation canvas (once). */
+    function showCanvas() {
+      if (welcome.style.display !== 'none') {
+        welcome.style.display = 'none';
+        canvas.style.display  = '';
+      }
+    }
+
+    /* joule-suggest — chip click: populate input and send */
+    welcome.addEventListener('joule-suggest', (e) => {
+      const { category } = e.detail;
+      /* Programmatically set the input text and fire a send */
+      const ed = input.shadowRoot?.querySelector('.mi-editor');
+      if (ed) {
+        input.expand();                       // ensure expanded
+        requestAnimationFrame(() => {
+          const editor = input.shadowRoot?.querySelector('.mi-editor');
+          if (editor) {
+            editor.textContent = category;
+            editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+            requestAnimationFrame(() => input.shadowRoot?.querySelector('[data-act="send"]')?.click());
+          }
+        });
+      }
+    });
 
     /* Mock fallback lines for plain-text responses */
     const MOCK_TEXT_LINES = [
@@ -232,6 +262,7 @@
        anything → HAI proxy first, mock fallback                            */
     input.addEventListener('joule-send', async (e) => {
       const { text, mention } = e.detail;
+      showCanvas();   /* hide welcome, reveal canvas */
       canvas.addUserMessage(text, mention);
       canvas.showLoading('Connecting to Performance Assistant ...');
 

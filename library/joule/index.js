@@ -17,3 +17,4 @@ import './joule-conversation-canvas.js?v=7';
 import './joule-message-input.js?v=4';
 import './joule-disclaimer.js?v=2';
 import './joule-response-actions.js?v=2';
+import './joule-welcome.js?v=1';

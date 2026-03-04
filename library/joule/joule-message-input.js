@@ -256,6 +256,13 @@ class JouleMessageInput extends HTMLElement {
   _bind() {
     const root = this.shadowRoot;
 
+    /* Expand to default when ANY inner element gains focus (click or Tab).
+       Uses requestAnimationFrame so button click handlers fire on the
+       current collapsed DOM before the re-render replaces it. */
+    root.addEventListener('focusin', () => {
+      if (this._collapsed) requestAnimationFrame(() => this.expand());
+    }, { once: true });
+
     /* expand on click/keyboard in collapsed placeholder area */
     root.querySelector('[data-act="expand"]')?.addEventListener('click',   () => this.expand());
     root.querySelector('[data-act="expand"]')?.addEventListener('keydown', (e) => {

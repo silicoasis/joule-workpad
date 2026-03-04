@@ -888,9 +888,10 @@ class JouleConversationCanvas extends HTMLElement {
       acc += tok;
       const isWord = /\S/.test(tok);
       if (isWord) {
+        /* Extract math before marked sees it, render with KaTeX on every tick */
+        const { text: pt, slots: sl } = _extractMath(acc);
         try {
-          responseDiv.innerHTML = md.parse(acc) + CURSOR;
-          /* Highlight any code blocks visible so far (already-highlighted ones skipped) */
+          responseDiv.innerHTML = _restoreMath(md.parse(pt), sl, katex) + CURSOR;
           _applyHljs(responseDiv);
         } catch {
           responseDiv.textContent = acc;

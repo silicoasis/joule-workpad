@@ -36,8 +36,11 @@ class JouleWelcome extends HTMLElement {
           <p class="welcome-headline">One more thing before<br />the day wraps up?</p>
         </div>
 
-        <!-- Input Suggestions — 3048:1774047 -->
+        <!-- Input Suggestions — 3048:1774047 : input then chips, gap 35px -->
         <div class="welcome-suggestions">
+          <!-- Message input slot — sits between headline and chips -->
+          <slot name="input"></slot>
+
           <!-- Suggestions — 3048:1774060 (flex-wrap) -->
           <div class="welcome-chips">
             <button class="welcome-chip" style="width:181px" data-cat="Analysis &amp; Reporting">

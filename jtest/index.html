@@ -18,16 +18,17 @@
 
       <!-- content slot — 3013:83766 -->
       <!-- welcome screen shown by default; swapped for canvas on first message -->
-      <joule-welcome slot="content" id="welcome"></joule-welcome>
+      <!-- joule-message-input is slotted into welcome's input slot so it sits
+           between the headline and the suggestion chips -->
+      <joule-welcome slot="content" id="welcome">
+        <joule-message-input
+          slot="input"
+          id="input"
+          placeholder="Create with Joule"
+          mention="Space">
+        </joule-message-input>
+      </joule-welcome>
       <joule-conversation-canvas slot="content" id="canvas" style="display:none"></joule-conversation-canvas>
-
-      <!-- message-input slot — 3013:83765 -->
-      <joule-message-input
-        slot="message-input"
-        id="input"
-        placeholder="Create with Joule"
-        mention="Space">
-      </joule-message-input>
 
       <!-- disclaimer slot — 3013:83768 -->
       <joule-disclaimer slot="disclaimer"></joule-disclaimer>

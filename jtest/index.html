@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WorkPad</title>
   <link rel="stylesheet" href="styles.css?v=2" />
-  <script type="module" src="../library/joule/index.js?v=7"></script>
+  <script type="module" src="../library/joule/index.js?v=8"></script>
 </head>
 <body>
 
@@ -38,56 +38,68 @@
   </div>
 
   <script type="module">
-    /* ── Invisible corner-drag resize ─────────────────────────────────────────
-       Four transparent 24×24 handles are placed at each corner of .panel-wrapper.
-       Dragging any corner resizes width/height; the panel stays centred via body flexbox.
-       No native resize indicator is shown — the handles are completely invisible.
+    /* ── Corner-drag resize ───────────────────────────────────────────────────
+       Detects mouse proximity to each corner via a document mousemove listener
+       and changes the cursor on document.body (reliable in all browsers including
+       Safari which ignores cursor CSS on transparent/invisible DOM elements).
+       Drag starts on mousedown when the pointer is within CORNER_HIT px of a corner.
     ── */
     (function () {
-      const wrapper = document.querySelector('.panel-wrapper');
-      const MIN_W = 320, MIN_H = 480;
+      const wrapper  = document.querySelector('.panel-wrapper');
+      const MIN_W    = 320, MIN_H = 480;
+      const HIT      = 28;  // px radius from each corner edge that shows resize cursor
+      let   dragging = null; // { cx, cy, sx, sy, sw, sh } while drag is active
 
-      // cx/cy: +1 = drag toward ↓→ grows, -1 = drag toward ↑← grows
-      const CORNERS = [
-        { t: 0,    l: 0,    cx: -1, cy: -1, cur: 'nw-resize' },
-        { t: 0,    r: 0,    cx:  1, cy: -1, cur: 'ne-resize' },
-        { b: 0,    l: 0,    cx: -1, cy:  1, cur: 'sw-resize' },
-        { b: 0,    r: 0,    cx:  1, cy:  1, cur: 'se-resize' },
-      ];
+      function cornerAt(x, y) {
+        const r  = wrapper.getBoundingClientRect();
+        const nL = x - r.left   <= HIT && x >= r.left - 4;
+        const nR = r.right  - x <= HIT && x <= r.right  + 4;
+        const nT = y - r.top    <= HIT && y >= r.top  - 4;
+        const nB = r.bottom - y <= HIT && y <= r.bottom + 4;
+        if (nL && nT) return { cx: -1, cy: -1, cur: 'nw-resize' };
+        if (nR && nT) return { cx:  1, cy: -1, cur: 'ne-resize' };
+        if (nL && nB) return { cx: -1, cy:  1, cur: 'sw-resize' };
+        if (nR && nB) return { cx:  1, cy:  1, cur: 'se-resize' };
+        return null;
+      }
 
-      CORNERS.forEach(({ t, l, r, b, cx, cy, cur }) => {
-        const el = document.createElement('div');
-        const pos = [
-          t != null ? `top:${t}px`    : null,
-          l != null ? `left:${l}px`   : null,
-          r != null ? `right:${r}px`  : null,
-          b != null ? `bottom:${b}px` : null,
-        ].filter(Boolean).join(';');
-        el.style.cssText =
-          `position:absolute;${pos};width:24px;height:24px;` +
-          `cursor:${cur};z-index:9999;background:transparent;`;
-        wrapper.appendChild(el);
+      /* Cursor tracking — set on body so it always wins regardless of element stacking */
+      document.addEventListener('mousemove', (e) => {
+        if (dragging) return;
+        const c = cornerAt(e.clientX, e.clientY);
+        document.body.style.cursor = c ? c.cur : '';
+      });
 
-        el.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          const sx = e.clientX, sy = e.clientY;
-          const sw = wrapper.offsetWidth, sh = wrapper.offsetHeight;
-          const maxW = window.innerWidth  - 48;
-          const maxH = window.innerHeight - 48;
+      /* Drag start */
+      document.addEventListener('mousedown', (e) => {
+        if (dragging) return;
+        const c = cornerAt(e.clientX, e.clientY);
+        if (!c) return;
+        e.preventDefault();
+        dragging = {
+          cx: c.cx, cy: c.cy,
+          sx: e.clientX, sy: e.clientY,
+          sw: wrapper.offsetWidth, sh: wrapper.offsetHeight,
+        };
+        document.body.style.cursor = c.cur;
 
-          const onMove = (e2) => {
-            const w = Math.max(MIN_W, Math.min(maxW, sw + (e2.clientX - sx) * cx));
-            const h = Math.max(MIN_H, Math.min(maxH, sh + (e2.clientY - sy) * cy));
-            wrapper.style.width  = w + 'px';
-            wrapper.style.height = h + 'px';
-          };
-          const onUp = () => {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup',   onUp);
-          };
-          document.addEventListener('mousemove', onMove);
-          document.addEventListener('mouseup',   onUp);
-        });
+        const maxW = window.innerWidth  - 48;
+        const maxH = window.innerHeight - 48;
+
+        const onMove = (e2) => {
+          const w = Math.max(MIN_W, Math.min(maxW, dragging.sw + (e2.clientX - dragging.sx) * dragging.cx));
+          const h = Math.max(MIN_H, Math.min(maxH, dragging.sh + (e2.clientY - dragging.sy) * dragging.cy));
+          wrapper.style.width  = w + 'px';
+          wrapper.style.height = h + 'px';
+        };
+        const onUp = () => {
+          dragging = null;
+          document.body.style.cursor = '';
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup',   onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup',   onUp);
       });
     })();
 
@@ -206,7 +218,6 @@
       if (data.error) throw new Error(data.error);
       const text = data?.text ?? '';
       if (!text) throw new Error('empty agent response');
-      console.log(`[agent] searched=${data.searched}`);
       return text;
     }
 
@@ -298,20 +309,649 @@
       }, 1000);
     }
 
-    /* joule-voice — microphone button clicked → show listening overlay.
-       The overlay matches the input field's exact width and bottom edge,
-       clamped to the panel wrapper's boundaries so it stays within the app.
-       A requestAnimationFrame loop tracks position when the panel is dragged. */
-    let _trackRaf = null;
+    /* ═══════════════════════════════════════════════════════════════════════
+       VOICE AGENT
+       ────────────────────────────────────────────────────────────────────
+       Flow:
+         1. Mic button → joule-voice event
+         2. getUserMedia → Web Audio API analyser → real-time waveform
+         3. SpeechRecognition (continuous, interim) → live transcript display
+         4. Auto-correct final results (grammar, tense, articles)
+         5. Verbal correction detection ("I mean X", "scratch that", etc.)
+         6. 3-second pause → auto-submit the transcript
+         7. joule-listening-stop → tear everything down
+       ═══════════════════════════════════════════════════════════════════════ */
+
+    /* ── Voice agent state ───────────────────────────────────────────────── */
+    let _trackRaf       = null;   // position-tracking rAF handle
+    let _voiceRec       = null;   // current SpeechRecognition instance (replaced each restart)
+    let _srClass        = null;   // saved SR constructor (set once mic is granted)
+    let _srErrorCount   = 0;      // consecutive SR errors → backoff + hint
+    let _audioCtx       = null;   // AudioContext
+    let _audioStream    = null;   // MediaStream from getUserMedia
+    let _analyserNode   = null;   // AnalyserNode fed to listening component
+    let _voiceConfirmed = '';     // accumulated final transcript
+    let _pauseTimer     = null;   // 3-second auto-submit timer
+    let _voiceActive      = false;  // guard against double-start
+    let _mediaMode        = false;  // true when using MediaRecorder + Whisper
+    let _mediaRec         = null;   // active MediaRecorder instance
+    let _vadInterval      = null;   // VAD setInterval handle
+    let _silenceMs        = 0;      // accumulated silence (ms) within current chunk
+    let _pendingMediaMode = false;  // flip to media mode once audioStream is ready
+    let _lastSpeechTime   = 0;      // timestamp of last detected voice activity
+    const PAUSE_MS        = 3000;   // ms of silence → auto-submit
+    const RELAY_URL       = 'http://localhost:6656/transcribe';
+    const VAD_TICK_MS     = 100;    // VAD poll interval
+    const VAD_THRESHOLD   = 6;      // voice-band amplitude threshold (0–255) — lowered for quiet mics
+    const CHUNK_SILENCE   = 900;    // silence duration (ms) that ends a recording chunk
+    const CHUNK_MAX_MS    = 6000;   // hard max chunk length — stops recorder if VAD stalls
+
     const wrapper = document.querySelector('.panel-wrapper');
 
-    document.addEventListener('joule-voice', () => {
-      const disclaimer = document.querySelector('joule-disclaimer');
+    /* ── Auto-correct: fix common broken-English patterns ───────────────── */
+    function autoCorrect(text) {
+      if (!text) return text;
+      let t = text;
 
-      /* Hide disclaimer — sits in the same footer area as the input */
+      /* ── Subject-verb agreement ── */
+      t = t.replace(/\bI\s+is\b/gi,            'I am');
+      t = t.replace(/\bI\s+are\b/gi,            'I am');
+      t = t.replace(/\bI\s+wants\b/gi,          'I want');
+      t = t.replace(/\bI\s+needs\b/gi,          'I need');
+      t = t.replace(/\bI\s+likes\b/gi,          'I like');
+      t = t.replace(/\bhe\s+don'?t\b/gi,        "he doesn't");
+      t = t.replace(/\bshe\s+don'?t\b/gi,       "she doesn't");
+      t = t.replace(/\bit\s+don'?t\b/gi,        "it doesn't");
+      t = t.replace(/\bthey\s+was\b/gi,         'they were');
+      t = t.replace(/\bwe\s+was\b/gi,           'we were');
+      t = t.replace(/\byou\s+was\b/gi,          'you were');
+      t = t.replace(/\bhe\s+were\b/gi,          'he was');
+      t = t.replace(/\bshe\s+were\b/gi,         'she was');
+      t = t.replace(/\bit\s+were\b/gi,          'it was');
+      t = t.replace(/\bthere\s+is\s+many\b/gi,  'there are many');
+      t = t.replace(/\bthere\s+is\s+a\s+lot\b/gi, 'there are a lot');
+
+      /* ── Wrong past tense / participle ── */
+      t = t.replace(/\bI\s+have\s+went\b/gi,    'I have gone');
+      t = t.replace(/\bI\s+have\s+did\b/gi,     'I have done');
+      t = t.replace(/\bI\s+have\s+came\b/gi,    'I have come');
+      t = t.replace(/\bI\s+have\s+ran\b/gi,     'I have run');
+      t = t.replace(/\bI\s+have\s+saw\b/gi,     'I have seen');
+      t = t.replace(/\bI\s+have\s+ate\b/gi,     'I have eaten');
+      t = t.replace(/\bI\s+seen\b/gi,           'I saw');
+      t = t.replace(/\bI\s+done\b(?!\s+(?:with|it|that|this|my|the))/gi, 'I did');
+      t = t.replace(/\bI\s+come\b(?!\s+from)/gi,'I came');
+      t = t.replace(/\bI\s+run\b(?!\s+(?:a|the|my|this|that|for|out))/gi,'I ran');
+      t = t.replace(/\bI\s+brung\b/gi,          'I brought');
+      t = t.replace(/\bI\s+buyed\b/gi,          'I bought');
+      t = t.replace(/\bI\s+thinked\b/gi,        'I thought');
+
+      /* ── Progressive → simple for stative verbs ── */
+      t = t.replace(/\bI\s+am\s+wanting\b/gi,   'I want');
+      t = t.replace(/\bI\s+am\s+needing\b/gi,   'I need');
+      t = t.replace(/\bI\s+am\s+knowing\b/gi,   'I know');
+      t = t.replace(/\bI\s+am\s+liking\b/gi,    'I like');
+      t = t.replace(/\bI\s+am\s+having\b(?!\s+(?:a|an|the|some|any|fun|trouble|difficulty))/gi, 'I have');
+
+      /* ── Double negatives ── */
+      t = t.replace(/\bdon'?t\s+never\b/gi,     "don't ever");
+      t = t.replace(/\bdidn'?t\s+never\b/gi,    "didn't ever");
+      t = t.replace(/\bcan'?t\s+(?:not|never)\b/gi, "can't");
+      t = t.replace(/\bwon'?t\s+never\b/gi,     "won't ever");
+      t = t.replace(/\bno\s+one\s+never\b/gi,   'no one ever');
+
+      /* ── Informal contractions / spoken shortcuts ── */
+      t = t.replace(/\bgonna\b/gi,  'going to');
+      t = t.replace(/\bwanna\b/gi,  'want to');
+      t = t.replace(/\bgotta\b/gi,  'have to');
+      t = t.replace(/\bkinda\b/gi,  'kind of');
+      t = t.replace(/\bsorta\b/gi,  'sort of');
+      t = t.replace(/\blotta\b/gi,  'a lot of');
+      t = t.replace(/\bdunno\b/gi,  "don't know");
+      t = t.replace(/\bgimme\b/gi,  'give me');
+      t = t.replace(/\blemme\b/gi,  'let me');
+      t = t.replace(/\bcoulda\b/gi, 'could have');
+      t = t.replace(/\bwoulda\b/gi, 'would have');
+      t = t.replace(/\bshoulda\b/gi,'should have');
+      t = t.replace(/\bmusta\b/gi,  'must have');
+
+      /* ── Wrong prepositions in fixed phrases ── */
+      t = t.replace(/\bsimilar\s+as\b/gi,     'similar to');
+      t = t.replace(/\bdifferent\s+than\b/gi, 'different from');
+      t = t.replace(/\bdepend\s+of\b/gi,      'depend on');
+      t = t.replace(/\binterested\s+on\b/gi,  'interested in');
+      t = t.replace(/\blisten\s+the\b/gi,     'listen to the');
+      t = t.replace(/\bmarried\s+with\b/gi,   'married to');
+      t = t.replace(/\bin\s+the\s+morning\s+of\b/gi, 'on the morning of');
+
+      /* ── Pronoun case ── */
+      t = t.replace(/\bme\s+and\s+(\w+)\s+(am|is|are|was|were|have|had|will|would|can|could)\b/gi,
+        (_, name, verb) => `${name} and I ${verb}`);
+      t = t.replace(/\bme\s+and\s+(\w+)\b/gi, (_, name) => `${name} and I`);
+      t = t.replace(/\bbetween\s+you\s+and\s+I\b/gi, 'between you and me');
+
+      /* ── Capitalize standalone "i" ── */
+      t = t.replace(/(^|\s)i('|\s|$)/g, (m, pre, post) => pre + 'I' + post);
+
+      /* ── Capitalize first letter of each sentence ── */
+      t = t.replace(/(^|[.!?]\s+)([a-z])/g, (m, p1, p2) => p1 + p2.toUpperCase());
+
+      return t.trim();
+    }
+
+    /* ── Sentence splitter (lookbehind-free, works in all modern browsers) ─ */
+    function splitSentences(s) {
+      const parts = [];
+      const re = /([^.!?]*[.!?]+)\s*/g;
+      let m, last = 0;
+      while ((m = re.exec(s)) !== null) {
+        if (m[1].trim()) parts.push(m[1].trim());
+        last = re.lastIndex;
+      }
+      const tail = s.slice(last).trim();
+      if (tail) parts.push(tail);
+      return parts.length ? parts : (s.trim() ? [s.trim()] : []);
+    }
+
+    /* ── Verbal correction detection ────────────────────────────────────── */
+    /* Returns { result: string } if the utterance is a correction command,  */
+    /* or null if it should be appended normally.                             */
+    function detectVerbalCorrection(raw, confirmed) {
+      const t = raw.trim();
+      const lo = t.toLowerCase();
+
+      /* "scratch that" / "never mind" / "delete that" / "cancel" → remove last sentence */
+      if (/^(scratch\s+that|never\s+mind|delete\s+that|forget\s+that|cancel\s+that|start\s+over)$/i.test(lo)) {
+        const sentences = splitSentences(confirmed);
+        sentences.pop();
+        return { result: sentences.join(' '), corrected: true };
+      }
+
+      /* "clear all" / "start again" → wipe everything */
+      if (/^(clear\s+all|start\s+again|erase\s+that|erase\s+all)$/i.test(lo)) {
+        return { result: '', corrected: true };
+      }
+
+      /* "I mean [X]" → replace last sentence with X */
+      const iMean = lo.match(/^i\s+mean\s+(.+)$/i);
+      if (iMean) {
+        const replacement = autoCorrect(t.slice(t.toLowerCase().indexOf(iMean[1])));
+        const sentences = splitSentences(confirmed);
+        if (sentences.length > 0) sentences[sentences.length - 1] = replacement;
+        else return { result: replacement, corrected: true };
+        return { result: sentences.join(' '), corrected: true };
+      }
+
+      /* "correction [X]" / "I meant [X]" → replace last word with X */
+      const corrMatch = lo.match(/^(?:correction|i\s+meant)[,:]?\s+(.+)$/i);
+      if (corrMatch) {
+        const replacement = autoCorrect(t.slice(t.toLowerCase().indexOf(corrMatch[1])));
+        const words = confirmed.trimEnd().split(/\s+/);
+        words[words.length - 1] = replacement;
+        return { result: words.join(' '), corrected: true };
+      }
+
+      /* "no, [X]" / "no wait [X]" / "actually [X]" → replace last sentence */
+      const noMatch = t.match(/^(?:no[,.]?\s+(?:wait\s+)?|actually[,]?\s+)(.+)$/i);
+      if (noMatch && confirmed) {
+        const replacement = autoCorrect(noMatch[1]);
+        const sentences = splitSentences(confirmed);
+        if (sentences.length > 0) {
+          sentences[sentences.length - 1] = replacement;
+          return { result: sentences.join(' '), corrected: true };
+        }
+      }
+
+      /* "replace [X] with [Y]" → text substitution */
+      const repMatch = t.match(/^replace\s+(.+?)\s+with\s+(.+)$/i);
+      if (repMatch) {
+        const [, from, to] = repMatch;
+        const result = confirmed.replace(new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi'), to);
+        return { result, corrected: true };
+      }
+
+      return null; // normal utterance
+    }
+
+    /* ── Start voice agent ───────────────────────────────────────────────── */
+    async function startVoiceAgent() {
+      if (_voiceActive) return;
+      _voiceActive    = true;
+      _voiceConfirmed = '';
+
+      /* ════ SYNCHRONOUS SECTION — everything here runs in the user-gesture
+             call stack.  Chrome requires AudioContext creation AND
+             SpeechRecognition.start() to happen BEFORE the first await.    ════ */
+
+      /* 1 ── AudioContext (sync) */
+      _audioCtx = new AudioContext();
+
+      /* 2 ── SpeechRecognition (sync) — rec.start() MUST fire before any await.
+              If called after await getUserMedia() the tab has left the
+              user-gesture context and Chrome throws service-not-allowed /
+              network errors even when connectivity is fine.                 */
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SR) {
+        _srClass      = SR;
+        _srErrorCount = 0;
+        listening.setHint("Hi, I'm listening.<br>Talk to me naturally.");
+        _startNewSR();   // ← rec.start() called here, still in gesture context
+      } else {
+        listening.setHint('Requesting microphone\u2026');
+      }
+
+      /* ════ ASYNC SECTION — outside gesture context from here on ════ */
+
+      /* 3 ── AudioContext resume if suspended (e.g. Safari autoplay policy) */
+      if (_audioCtx.state === 'suspended') {
+        try { await _audioCtx.resume(); } catch (_) {}
+      }
+
+      /* 4 ── Microphone stream for Web Audio waveform (optional — SR still
+              works even if getUserMedia is denied or unavailable)          */
+      try {
+        _audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        const source  = _audioCtx.createMediaStreamSource(_audioStream);
+        _analyserNode = _audioCtx.createAnalyser();
+        _analyserNode.fftSize               = 1024;
+        _analyserNode.smoothingTimeConstant  = 0.72;
+        source.connect(_analyserNode);
+        /* Chrome does not process the audio graph unless there is a path to
+           AudioContext.destination.  Without this, getByteFrequencyData()
+           returns all zeros → waveform bars never react to voice.
+           A zero-gain node prevents any audible speaker output.            */
+        const silentGain = _audioCtx.createGain();
+        silentGain.gain.value = 0;   // muted — no feedback / echo
+        source.connect(silentGain);
+        silentGain.connect(_audioCtx.destination);
+        listening.connectAnalyser(_analyserNode);
+      } catch (_) {
+        /* waveform will remain CSS-animated; transcription still works */
+      }
+
+      if (!SR) {
+        listening.setHint('Mic active \u2014 speech recognition not available in this browser.');
+      }
+    }
+
+    /* ── Create a fresh SR instance and start it ─────────────────────────
+       Called on first start and on every restart after onend.
+       Each call creates a NEW SpeechRecognition object — reusing an
+       instance that fired onerror causes silent failures in Chrome.        */
+    function _startNewSR() {
+      if (!_voiceActive || !_srClass) return;
+
+      /* Discard the previous (potentially errored) instance cleanly */
+      if (_voiceRec) {
+        try { _voiceRec.onend = null; _voiceRec.onerror = null; _voiceRec.abort(); } catch (_) {}
+        _voiceRec = null;
+      }
+
+      const rec = new _srClass();
+      /* continuous:false  →  utterance-per-request mode.
+         Each utterance makes a fresh HTTP call to the SR backend which is
+         far more reliable than the long-lived WebSocket used in continuous
+         mode — the WebSocket is the main source of 'network' errors.       */
+      rec.continuous      = false;
+      rec.interimResults  = true;
+      rec.lang            = 'en-US';
+      rec.maxAlternatives = 1;
+
+      rec.onstart = () => {
+        if (_srErrorCount > 0) {
+          /* Recovered from errors — restore the ready hint */
+          _srErrorCount = 0;
+          listening.setHint("Hi, I'm listening.<br>Talk to me naturally.");
+        }
+      };
+
+      rec.onresult = (event) => {
+        let interimText = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const raw    = result[0].transcript;
+
+          if (result.isFinal) {
+            /* Check if this utterance is a verbal correction */
+            const correction = detectVerbalCorrection(raw, _voiceConfirmed);
+            if (correction) {
+              _voiceConfirmed = correction.result;
+              if (correction.corrected) listening.flashCorrectionBadge();
+            } else {
+              /* Normal utterance — auto-correct and append */
+              const clean = autoCorrect(raw.trim());
+              if (_voiceConfirmed && !/[.!?]\s*$/.test(_voiceConfirmed)) {
+                _voiceConfirmed += ' ';
+              }
+              _voiceConfirmed += clean;
+            }
+          } else {
+            interimText += raw;
+          }
+        }
+
+        /* Update live display */
+        listening.setTranscript(_voiceConfirmed, autoCorrect(interimText));
+
+        /* Reset 3-second pause auto-submit timer */
+        if (_pauseTimer) clearTimeout(_pauseTimer);
+        if (_voiceConfirmed.trim() || interimText.trim()) {
+          _pauseTimer = setTimeout(() => {
+            const final = _voiceConfirmed.trim();
+            if (final) submitVoiceInput(final);
+          }, PAUSE_MS);
+        }
+      };
+
+      rec.onerror = (e) => {
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          listening.setHint('Microphone access denied.<br>Check browser settings.');
+          stopVoiceAgent();
+          listening.hide();
+          listening.dispatchEvent(new CustomEvent('joule-listening-stop', { bubbles: true, composed: true }));
+          return;
+        }
+        /* After 3 consecutive network / audio-capture errors switch to Whisper.
+           Each retry shows progress; recovers from transient Google SR outages. */
+        if (e.error === 'network' || e.error === 'audio-capture') {
+          ++_srErrorCount;
+          if (_srErrorCount < 3) {
+            listening.setHint('Reconnecting\u2026 (' + _srErrorCount + '/3)');
+          } else {
+            _pendingMediaMode = true;
+            listening.setHint('Switching to Whisper AI mode\u2026');
+            setTimeout(() => { if (_voiceActive && _pendingMediaMode) _startMediaMode(); }, 800);
+          }
+        }
+      };
+
+      /* onend fires after every onerror. Only restart SR if not switching to media mode. */
+      rec.onend = () => {
+        if (!_voiceActive || _pendingMediaMode) return;
+        const backoff = _srErrorCount > 0
+          ? Math.min(4000, Math.pow(2, _srErrorCount - 1) * 400)
+          : 150;
+        setTimeout(_startNewSR, backoff);
+      };
+
+      _voiceRec = rec;
+      try { rec.start(); } catch (err) {
+        setTimeout(_startNewSR, 1000);
+      }
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+       MediaRecorder + OpenAI Whisper fallback
+       Activated automatically when Chrome's Web Speech API returns a
+       'network' error (cannot reach Google's speech servers).
+       Requires:  OPENAI_API_KEY=sk-…  node jtest/hai-relay.js
+       ══════════════════════════════════════════════════════════════════════ */
+
+    function _startMediaMode() {
+      if (_mediaMode || !_voiceActive) return;
+      _pendingMediaMode = false;
+
+      /* Wait for the mic stream if getUserMedia is still in flight */
+      if (!_audioStream) {
+        setTimeout(() => { if (_voiceActive) _startMediaMode(); }, 300);
+        return;
+      }
+
+      _mediaMode = true;
+
+      /* Kill any lingering SR instance */
+      _srClass = null;
+      if (_voiceRec) {
+        try { _voiceRec.onend = null; _voiceRec.onerror = null; _voiceRec.abort(); } catch (_) {}
+        _voiceRec = null;
+      }
+
+      listening.setHint('\uD83C\uDFA4 Whisper AI active \u2014 speak naturally');
+      _startRecordingChunk();
+    }
+
+    /** Start one recording chunk; VAD stops it after CHUNK_SILENCE ms of quiet. */
+    function _startRecordingChunk() {
+      if (!_mediaMode || !_audioStream || !_voiceActive) return;
+
+      const mimeType =
+        MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' :
+        MediaRecorder.isTypeSupported('audio/webm')             ? 'audio/webm'             :
+        MediaRecorder.isTypeSupported('audio/mp4')              ? 'audio/mp4'              : '';
+
+      let chunkBlobs = [];
+
+      try {
+        _mediaRec = new MediaRecorder(_audioStream, mimeType ? { mimeType } : {});
+      } catch (err) {
+        listening.setHint('MediaRecorder unavailable.<br>Try Safari for voice input.');
+        return;
+      }
+
+      let hadSpeech  = false;   // true once amplitude exceeds VAD_THRESHOLD this chunk
+      let chunkTimer = null;    // hard-stop safety net (CHUNK_MAX_MS)
+
+      const stopChunk = () => {
+        if (chunkTimer) { clearTimeout(chunkTimer); chunkTimer = null; }
+        if (_vadInterval) { clearInterval(_vadInterval); _vadInterval = null; }
+        if (_mediaRec?.state === 'recording') _mediaRec.stop();
+      };
+
+      _mediaRec.ondataavailable = (e) => { if (e.data?.size > 0) chunkBlobs.push(e.data); };
+
+      _mediaRec.onstop = async () => {
+        if (!_mediaMode) return;
+        if (chunkBlobs.length === 0) {
+          if (_mediaMode && _voiceActive) _startRecordingChunk();
+          return;
+        }
+        const type = _mediaRec.mimeType || mimeType || 'audio/webm';
+        const blob = new Blob(chunkBlobs, { type });
+        chunkBlobs = [];
+        if (blob.size > 1024) {
+          if (!_voiceConfirmed) listening.setHint('⏳ Transcribing…');
+          await _transcribeChunk(blob);
+        }
+        if (_mediaMode && _voiceActive) _startRecordingChunk();
+      };
+
+      try { _mediaRec.start(100); } catch (err) {
+        listening.setHint('⚠️ Recorder failed: ' + err.message);
+        return;
+      }
+      _silenceMs = 0;
+
+      /* Hard-stop safety net: force chunk end after CHUNK_MAX_MS even if VAD stalls */
+      chunkTimer = setTimeout(stopChunk, CHUNK_MAX_MS);
+
+      /* VAD loop: monitors amplitude and stops chunk after CHUNK_SILENCE of quiet.
+         _silenceMs is incremented on EVERY non-speaking tick (not gated on hadSpeech)
+         so the chunk always terminates even when AnalyserNode data is all-zero
+         (e.g. suspended AudioContext or very quiet microphone).               */
+      if (_vadInterval) clearInterval(_vadInterval);
+      _vadInterval = setInterval(() => {
+        if (!_mediaMode) { clearInterval(_vadInterval); _vadInterval = null; return; }
+
+        let avg = 0;
+        if (_analyserNode) {
+          const data = new Uint8Array(_analyserNode.frequencyBinCount);
+          _analyserNode.getByteFrequencyData(data);
+          /* Voice-band average: bins 2–50 (≈ 86–2150 Hz) for fftSize=1024 */
+          let sum = 0;
+          for (let i = 2; i <= 50; i++) sum += data[i];
+          avg = sum / 49;
+        }
+
+        if (avg > VAD_THRESHOLD) {
+          hadSpeech       = true;
+          _silenceMs      = 0;
+          _lastSpeechTime = Date.now();
+          if (_pauseTimer) { clearTimeout(_pauseTimer); _pauseTimer = null; }
+        } else {
+          /* Always count silence — do NOT gate on hadSpeech.
+             This ensures chunk stops even when analyser returns zeros. */
+          _silenceMs += VAD_TICK_MS;
+
+          /* Start 3-second submit timer on the first silence tick after speech */
+          if (_silenceMs === VAD_TICK_MS && hadSpeech && !_pauseTimer) {
+            _pauseTimer = setTimeout(() => {
+              _pauseTimer = null;
+              if (_voiceConfirmed.trim()) submitVoiceInput(_voiceConfirmed.trim());
+            }, PAUSE_MS);
+          }
+
+          /* Stop chunk after CHUNK_SILENCE */
+          if (_silenceMs >= CHUNK_SILENCE) stopChunk();
+        }
+      }, VAD_TICK_MS);
+    }
+
+    /** POST a recorded blob to hai-relay /transcribe → OpenAI Whisper */
+    async function _transcribeChunk(blob) {
+      if (!_mediaMode || !_voiceActive || blob.size < 1024) return;
+      try {
+        const ext      = blob.type.includes('mp4') ? 'audio.mp4' : 'audio.webm';
+        const fd       = new FormData();
+        fd.append('file',     blob, ext);
+        fd.append('model',    'whisper-1');
+        fd.append('language', 'en');
+
+        const res = await fetch(RELAY_URL, {
+          method: 'POST', body: fd,
+          signal: AbortSignal.timeout(15000),
+        });
+
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => null);
+          const errCode = errBody?.error?.code || errBody?.error || null;
+
+          if (errCode === 'no_key' || res.status === 503) {
+            /* Relay running but no OPENAI_API_KEY set */
+            listening.setHint(
+              '⚠️ No OpenAI key set.<br>' +
+              'Stop relay &amp; restart:<br>' +
+              '<code style="font-size:10px">OPENAI_API_KEY=sk-\u2026 node jtest/hai-relay.js</code>'
+            );
+          } else if (res.status === 401) {
+            /* Key set but rejected by OpenAI — invalid, expired, or wrong project */
+            listening.setHint(
+              '⚠️ OpenAI key is invalid or expired.<br>' +
+              'Get a new key at <strong>platform.openai.com</strong>, then restart:<br>' +
+              '<code style="font-size:10px">OPENAI_API_KEY=sk-\u2026 node jtest/hai-relay.js</code>'
+            );
+          } else if (res.status === 429) {
+            listening.setHint('\u26A0\uFE0F OpenAI rate limit reached. Please wait a moment.');
+          } else {
+            const msg = errBody?.error?.message || `HTTP ${res.status}`;
+            listening.setHint('\u26A0\uFE0F ' + msg);
+          }
+          _mediaMode = false;   // stop recording on any auth/server error
+          return;
+        }
+
+        const data = await res.json();
+        const raw  = (data.text || '').trim();
+        if (!raw) {
+          if (!_voiceConfirmed) listening.setHint('\uD83C\uDFA4 Whisper AI active \u2014 speak now');
+          return;
+        }
+
+        const correction = detectVerbalCorrection(raw, _voiceConfirmed);
+        if (correction) {
+          _voiceConfirmed = correction.result;
+          if (correction.corrected) listening.flashCorrectionBadge();
+        } else {
+          const clean = autoCorrect(raw);
+          if (_voiceConfirmed && !/[.!?]\s*$/.test(_voiceConfirmed)) _voiceConfirmed += ' ';
+          _voiceConfirmed += clean;
+        }
+        listening.setTranscript(_voiceConfirmed, '');
+
+        /* Edge case: the 3-second submit timer already fired while transcription
+           was in flight (timer fires → no text yet → sets _pauseTimer=null).
+           If the user hasn't spoken since the timer fired → submit now.     */
+        if (!_pauseTimer && _voiceConfirmed.trim() && (Date.now() - _lastSpeechTime) >= PAUSE_MS) {
+          submitVoiceInput(_voiceConfirmed.trim());
+          return;
+        }
+
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          listening.setHint(
+            '⚠️ Relay unreachable.<br>' +
+            'Run: <code style="font-size:10px">OPENAI_API_KEY=sk-\u2026 node jtest/hai-relay.js</code><br>' +
+            'Or use <strong>Safari</strong> (no relay needed).'
+          );
+        }
+      }
+    }
+
+    /* ── Stop voice agent ────────────────────────────────────────────────── */
+    function stopVoiceAgent() {
+      _voiceActive      = false;
+      _mediaMode        = false;
+      _pendingMediaMode = false;
+
+      if (_vadInterval) { clearInterval(_vadInterval); _vadInterval = null; }
+      if (_pauseTimer)  { clearTimeout(_pauseTimer);   _pauseTimer  = null; }
+
+      if (_mediaRec && _mediaRec.state !== 'inactive') {
+        try { _mediaRec.ondataavailable = null; _mediaRec.onstop = null; _mediaRec.stop(); } catch (_) {}
+      }
+      _mediaRec = null;
+
+      if (_voiceRec) {
+        try { _voiceRec.abort(); } catch (_) {}
+        _voiceRec = null;
+      }
+      if (_analyserNode) {
+        try { _analyserNode.disconnect(); } catch (_) {}
+        _analyserNode = null;
+      }
+      if (_audioCtx) {
+        try { _audioCtx.close(); } catch (_) {}
+        _audioCtx = null;
+      }
+      if (_audioStream) {
+        _audioStream.getTracks().forEach(t => t.stop());
+        _audioStream = null;
+      }
+      _voiceConfirmed = '';
+    }
+
+    /* ── Submit transcript as a chat message ─────────────────────────────── */
+    function submitVoiceInput(text) {
+      stopVoiceAgent();
+      listening.hide();
+
+      /* Restore disclaimer */
+      const disclaimer = document.querySelector('joule-disclaimer');
+      if (disclaimer) disclaimer.style.display = '';
+
+      /* Stop position tracking */
+      if (_trackRaf) { cancelAnimationFrame(_trackRaf); _trackRaf = null; }
+
+      /* Dispatch joule-send directly on the input element.
+         More reliable than manipulating the shadow DOM contenteditable:
+         avoids timing issues between textContent, InputEvent, and send click. */
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      setTimeout(() => {
+        const mention = input.getAttribute('mention') ?? 'Space';
+        input.dispatchEvent(new CustomEvent('joule-send', {
+          bubbles: true,
+          composed: true,
+          detail: { text: trimmed, mention }
+        }));
+      }, 100);
+    }
+
+    /* ── joule-voice — mic button clicked ───────────────────────────────── */
+    document.addEventListener('joule-voice', async () => {
+      const disclaimer = document.querySelector('joule-disclaimer');
       if (disclaimer) disclaimer.style.display = 'none';
 
-      /* Show, clamped to panel wrapper bounds */
       listening.show(input.getBoundingClientRect(), wrapper.getBoundingClientRect());
 
       /* Continuously track position (follows panel on drag/resize) */
@@ -322,11 +962,15 @@
       }
       if (_trackRaf) cancelAnimationFrame(_trackRaf);
       _trackRaf = requestAnimationFrame(track);
+
+      /* Start voice recognition + audio waveform */
+      await startVoiceAgent();
     });
 
-    /* joule-listening-stop — stop tracking, restore disclaimer */
+    /* ── joule-listening-stop — close button / mic button tapped ────────── */
     document.addEventListener('joule-listening-stop', () => {
       if (_trackRaf) { cancelAnimationFrame(_trackRaf); _trackRaf = null; }
+      stopVoiceAgent();
       const disclaimer = document.querySelector('joule-disclaimer');
       if (disclaimer) disclaimer.style.display = '';
     });
@@ -385,12 +1029,10 @@
           const raw = await callAgent(text);
           await canvas.streamMarkdown(raw);
         } catch (agentErr) {
-          console.warn('[agent] unavailable, trying HAI direct:', agentErr.message);
           try {
             const raw = await callHAI(text);
             await canvas.streamMarkdown(raw);
-          } catch (haiErr) {
-            console.warn('[HAI] proxy unavailable, using mock:', haiErr.message);
+          } catch (_) {
             await new Promise(r => setTimeout(r, 1200));
             await canvas.streamMarkdown(MOCK_TEXT_LINES.join('\n\n'));
           }

@@ -7,11 +7,13 @@
  * frosted-glass card containing an animated waveform + action buttons.
  *
  * Methods (public API):
- *   show()   — display the listening overlay (fade in)
- *   hide()   — dismiss the overlay (fade out)
+ *   show()                         — display the listening overlay (fade in)
+ *   hide()                         — dismiss the overlay (fade out) + cleanup
+ *   setTranscript(confirmed, interim) — update live transcription display
+ *   connectAnalyser(analyserNode)  — drive waveform bars from Web Audio API
  *
  * Events (bubble + composed):
- *   joule-listening-stop  — user tapped close / keyboard button
+ *   joule-listening-stop  — user tapped close / microphone button
  */
 
 /* ─── SAP icon paths (inline SVG) ─────────────────────────────────────────── */
@@ -29,6 +31,13 @@ class JouleListening extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
+    /* Web Audio waveform state */
+    this._waveRaf      = null;         // rAF handle for audio-driven waveform loop
+    this._analyser     = null;         // AnalyserNode (passed in via connectAnalyser)
+    this._analyserData = null;         // Uint8Array frequency buffer
+    this._smoothed     = new Float32Array(9).fill(0.15); // per-bar exponential smooth
+    /* Transcript state */
+    this._transcriptVisible = false;
   }
 
   connectedCallback() {
@@ -39,16 +48,11 @@ class JouleListening extends HTMLElement {
 
   /**
    * Display the listening overlay exactly over the input field.
-   * Bounded to the panel wrapper so it never overflows the app boundaries.
-   *
-   * @param {DOMRect} inputRect   - getBoundingClientRect() of joule-message-input
-   * @param {DOMRect} wrapperRect - getBoundingClientRect() of .panel-wrapper
    */
   show(inputRect, wrapperRect) {
     this._applyRect(inputRect, wrapperRect);
     this.removeAttribute('hidden');
     this.style.display = '';
-    /* force reflow so opacity transition fires */
     void this.offsetHeight;
     requestAnimationFrame(() => {
       const card = this.shadowRoot?.querySelector('.vm-card');
@@ -60,46 +64,219 @@ class JouleListening extends HTMLElement {
 
   /**
    * Update the overlay position every rAF frame (follows panel on drag).
-   *
-   * @param {DOMRect} inputRect   - current getBoundingClientRect() of input
-   * @param {DOMRect} wrapperRect - current getBoundingClientRect() of .panel-wrapper
    */
   updatePosition(inputRect, wrapperRect) {
     this._applyRect(inputRect, wrapperRect);
   }
 
   /**
-   * Apply viewport-fixed coords that EXACTLY match the panel wrapper's bounds.
-   * border-radius + overflow:hidden on :host clip all rendering to the panel shape.
-   * The card is positioned at the input's bottom via padding, and aligned
-   * horizontally to the input via CSS custom properties.
+   * Apply viewport-fixed coords matching the panel wrapper's bounds exactly.
    */
   _applyRect(inputRect, wrapperRect) {
     if (!wrapperRect) return;
     this.style.position = 'fixed';
-    /* Overlay = exact panel bounds */
     this.style.left   = wrapperRect.left + 'px';
     this.style.right  = (window.innerWidth  - wrapperRect.right)  + 'px';
     this.style.top    = wrapperRect.top  + 'px';
     this.style.bottom = (window.innerHeight - wrapperRect.bottom) + 'px';
     this.style.height = 'auto';
-    /* Panel border-radius so overflow:hidden clips to the panel's rounded corners */
     this.style.borderRadius = '30px';
     this.style.overflow = 'hidden';
-    /* Push card up from overlay bottom so card's bottom aligns with input bottom */
     this.style.paddingBottom = (wrapperRect.bottom - inputRect.bottom) + 'px';
-    /* Card horizontal margins = distance from panel edge to input edge */
     this.style.setProperty('--vm-card-ml', (inputRect.left  - wrapperRect.left)  + 'px');
     this.style.setProperty('--vm-card-mr', (wrapperRect.right - inputRect.right) + 'px');
   }
 
-  /** Dismiss the overlay with a fade-out transition */
+  /** Dismiss the overlay: fade out, stop audio waveform RAF, reset transcript. */
   hide() {
     const card = this.shadowRoot?.querySelector('.vm-card');
     const bg   = this.shadowRoot?.querySelector('.vm-bg');
     if (card) { card.style.opacity = '0'; card.style.transform = 'translateY(-10px)'; }
     if (bg)   { bg.style.opacity   = '0'; }
-    setTimeout(() => { this.style.display = 'none'; }, 300);
+    setTimeout(() => {
+      this.style.display = 'none';
+      /* Reset transcript for next session */
+      this._resetTranscript();
+    }, 300);
+    /* Stop audio-driven waveform */
+    this._stopWaveformRaf();
+  }
+
+  /**
+   * Update live transcript display inside the card.
+   *
+   * @param {string} confirmed  — final corrected words (solid text)
+   * @param {string} interim    — live partial recognition (ghost text)
+   */
+  setTranscript(confirmed, interim) {
+    const vmText    = this.shadowRoot?.querySelector('.vm-text');
+    const vmTrans   = this.shadowRoot?.querySelector('.vm-transcript');
+    const tcEl      = this.shadowRoot?.querySelector('.vm-tc');
+    const tiEl      = this.shadowRoot?.querySelector('.vm-ti');
+    if (!vmTrans || !tcEl || !tiEl) return;
+
+    const hasContent = !!(confirmed || interim);
+
+    if (hasContent && !this._transcriptVisible) {
+      /* First words — fade out "Hi, I'm listening" and reveal transcript zone */
+      this._transcriptVisible = true;
+      if (vmText) {
+        vmText.style.transition = 'opacity 0.3s ease, max-height 0.3s ease';
+        vmText.style.opacity    = '0';
+        vmText.style.maxHeight  = '0';
+        vmText.style.overflow   = 'hidden';
+        vmText.style.margin     = '0';
+      }
+      vmTrans.style.display  = 'block';
+      vmTrans.style.opacity  = '0';
+      requestAnimationFrame(() => {
+        vmTrans.style.transition = 'opacity 0.3s ease';
+        vmTrans.style.opacity    = '1';
+      });
+    } else if (!hasContent && this._transcriptVisible) {
+      /* All text cleared — restore welcome text */
+      this._resetTranscript();
+    }
+
+    tcEl.textContent = confirmed || '';
+    /* Interim text: append with a space separator */
+    tiEl.textContent = interim ? (confirmed ? ' ' + interim : interim) : '';
+
+    /* Auto-scroll transcript to bottom */
+    vmTrans.scrollTop = vmTrans.scrollHeight;
+  }
+
+  /**
+   * Update the hint text inside the card (status / error messages).
+   * Safe to call at any time; ignored once transcript becomes visible.
+   * @param {string} html — inner HTML for the hint paragraph
+   */
+  setHint(html) {
+    const vmText = this.shadowRoot?.querySelector('.vm-text');
+    if (!vmText || this._transcriptVisible) return;
+    vmText.innerHTML  = html;
+    vmText.style.opacity   = '1';
+    vmText.style.maxHeight = '';
+    vmText.style.overflow  = '';
+    vmText.style.margin    = '';
+  }
+
+  /**
+   * Connect a Web Audio API AnalyserNode to drive the waveform bars in real time.
+   * Call this after getUserMedia + createMediaStreamSource + createAnalyser.
+   *
+   * @param {AnalyserNode} analyserNode
+   */
+  connectAnalyser(analyserNode) {
+    this._analyser     = analyserNode;
+    this._analyserData = new Uint8Array(analyserNode.frequencyBinCount);
+    /* Reset smoothing state */
+    this._smoothed.fill(0.15);
+    this._startWaveformRaf();
+  }
+
+  /* ── Waveform: audio-driven rAF loop ────────────────────────────────────── */
+
+  _startWaveformRaf() {
+    const bars = [...(this.shadowRoot?.querySelectorAll('.vm-bar') || [])];
+    if (!bars.length) return;
+
+    /* Suspend the CSS keyframe animation — JS takes over */
+    bars.forEach(b => {
+      b.style.animation = 'none';
+      b.style.transition = 'height 55ms ease-out';
+    });
+
+    /* Natural maximum heights for the mountain profile (bars 0–8) */
+    const maxH = [14, 24, 38, 50, 56, 50, 38, 24, 14];
+
+    /*
+     * Map 9 bars into the voice-frequency range.
+     * For fftSize=1024: frequencyBinCount=512, each bin ≈ 43 Hz.
+     * Voice band: ~80 Hz (bin 2) to ~4 kHz (bin 93).
+     * We use log-spaced bands within that range so lower frequencies
+     * (fundamental pitch) drive the outer bars and mid-frequencies
+     * (formants, harmonics) drive the center bars.
+     */
+    const LOW_BIN  = 2;    // ~86 Hz
+    const HIGH_BIN = 93;   // ~4 kHz
+    const logLow   = Math.log(LOW_BIN  + 1);
+    const logHigh  = Math.log(HIGH_BIN + 1);
+
+    const getBinRange = (barIdx) => {
+      const t0 = barIdx       / 9;
+      const t1 = (barIdx + 1) / 9;
+      const start = Math.round(Math.exp(logLow + t0 * (logHigh - logLow)) - 1);
+      const end   = Math.round(Math.exp(logLow + t1 * (logHigh - logLow)) - 1);
+      return [Math.max(LOW_BIN, start), Math.min(HIGH_BIN, Math.max(start + 1, end))];
+    };
+
+    const tick = () => {
+      if (!this._analyser) return;
+      this._analyser.getByteFrequencyData(this._analyserData);
+
+      bars.forEach((bar, i) => {
+        const [lo, hi] = getBinRange(i);
+        let sum = 0;
+        for (let b = lo; b < hi; b++) sum += this._analyserData[b];
+        const raw = sum / (hi - lo) / 255; // 0–1
+
+        /* Exponential smoothing: fast rise (0.45), slow fall (0.85) */
+        const alpha = raw > this._smoothed[i] ? 0.45 : 0.85;
+        this._smoothed[i] = this._smoothed[i] * alpha + raw * (1 - alpha);
+
+        /* Scale to 10%–100% of the bar's natural max height */
+        const scale = 0.10 + this._smoothed[i] * 0.90;
+        bar.style.height = (maxH[i] * scale).toFixed(1) + 'px';
+      });
+
+      this._waveRaf = requestAnimationFrame(tick);
+    };
+
+    if (this._waveRaf) cancelAnimationFrame(this._waveRaf);
+    this._waveRaf = requestAnimationFrame(tick);
+  }
+
+  _stopWaveformRaf() {
+    if (this._waveRaf) {
+      cancelAnimationFrame(this._waveRaf);
+      this._waveRaf = null;
+    }
+    /* Restore CSS keyframe animation on bars */
+    const bars = this.shadowRoot?.querySelectorAll('.vm-bar');
+    bars?.forEach(b => {
+      b.style.animation  = '';
+      b.style.transition = '';
+      b.style.height     = '';
+    });
+    this._analyser     = null;
+    this._analyserData = null;
+    this._smoothed.fill(0.15);
+  }
+
+  /* ── Reset transcript display ───────────────────────────────────────────── */
+  _resetTranscript() {
+    this._transcriptVisible = false;
+    const vmText  = this.shadowRoot?.querySelector('.vm-text');
+    const vmTrans = this.shadowRoot?.querySelector('.vm-transcript');
+    const tcEl    = this.shadowRoot?.querySelector('.vm-tc');
+    const tiEl    = this.shadowRoot?.querySelector('.vm-ti');
+
+    if (vmText) {
+      vmText.innerHTML   = "Hi, I'm listening.<br>Talk to me naturally.";
+      vmText.style.transition = '';
+      vmText.style.opacity    = '';
+      vmText.style.maxHeight  = '';
+      vmText.style.overflow   = '';
+      vmText.style.margin     = '';
+    }
+    if (vmTrans) {
+      vmTrans.style.display  = 'none';
+      vmTrans.style.opacity  = '';
+      vmTrans.style.transition = '';
+    }
+    if (tcEl) tcEl.textContent = '';
+    if (tiEl) tiEl.textContent = '';
   }
 
   /* ── Render ─────────────────────────────────────────────────────────────── */
@@ -107,8 +284,6 @@ class JouleListening extends HTMLElement {
     this.shadowRoot.innerHTML = `
 <style>
 /* ── Host: fixed overlay matching panel bounds exactly ───────────────────── */
-/* border-radius + overflow:hidden clip everything to the panel's shape.     */
-/* All geometry set at runtime via _applyRect(); values here are defaults.   */
 :host {
   position: fixed;
   left: 0; right: 0; top: 0; bottom: 0;
@@ -124,7 +299,6 @@ class JouleListening extends HTMLElement {
 }
 
 /* ── Animated gradient background ───────────────────────────────────────── */
-/* Three blurred blobs that drift around — replicates Effect Layer-Talk 1   */
 .vm-bg {
   position: absolute;
   inset: 0;
@@ -141,75 +315,62 @@ class JouleListening extends HTMLElement {
   will-change: transform;
 }
 
-/* Large purple blob — top-left */
 .vm-blob--1 {
   width: 70%;
   padding-bottom: 70%;
   background: radial-gradient(circle, rgba(93,54,255,0.55) 0%, rgba(93,54,255,0) 70%);
-  top: -15%;
-  left: -15%;
+  top: -15%; left: -15%;
   filter: blur(32px);
   animation: vm-drift-1 5s ease-in-out infinite alternate;
 }
 
-/* Pink/magenta blob — bottom-right */
 .vm-blob--2 {
   width: 60%;
   padding-bottom: 60%;
   background: radial-gradient(circle, rgba(161,0,194,0.45) 0%, rgba(161,0,194,0) 70%);
-  bottom: 5%;
-  right: -10%;
+  bottom: 5%; right: -10%;
   filter: blur(40px);
   animation: vm-drift-2 6s ease-in-out infinite alternate;
   animation-delay: -2s;
 }
 
-/* Blue accent blob — center */
 .vm-blob--3 {
   width: 50%;
   padding-bottom: 50%;
   background: radial-gradient(circle, rgba(120,88,255,0.35) 0%, rgba(120,88,255,0) 70%);
-  top: 25%;
-  left: 20%;
+  top: 25%; left: 20%;
   filter: blur(48px);
   animation: vm-drift-3 7s ease-in-out infinite alternate;
   animation-delay: -4s;
 }
 
-/* Drift keyframes — gentle organic movement */
 @keyframes vm-drift-1 {
   0%   { transform: translate(0,    0)    scale(1.00); }
   33%  { transform: translate(6%,   8%)   scale(1.06); }
   66%  { transform: translate(-4%,  12%)  scale(0.94); }
   100% { transform: translate(10%,  -6%)  scale(1.08); }
 }
-
 @keyframes vm-drift-2 {
   0%   { transform: translate(0,    0)    scale(1.00); }
   40%  { transform: translate(-8%,  -6%)  scale(1.05); }
   80%  { transform: translate(4%,   8%)   scale(0.96); }
   100% { transform: translate(-6%,  4%)   scale(1.04); }
 }
-
 @keyframes vm-drift-3 {
   0%   { transform: translate(0,    0)    scale(1.00); }
   50%  { transform: translate(-10%, 6%)   scale(1.10); }
   100% { transform: translate(8%,   -10%) scale(0.92); }
 }
 
-/* Subtle white tint — no backdrop-filter so nothing outside the card blurs */
 .vm-noise {
-  position: absolute;
-  inset: 0;
+  position: absolute; inset: 0;
   background: rgba(255,255,255,0.06);
   pointer-events: none;
 }
 
-/* ── Voice Mode Card — fills the full input-matched width ────────────────── */
-/* Figma: Voice Mode Container — backdrop-blur, bg rgba(131,150,168,0.09)   */
+/* ── Voice Mode Card ─────────────────────────────────────────────────────── */
 .vm-card {
   position: relative;
-  /* align card horizontally to the input field */
   margin-left:  var(--vm-card-ml, 16px);
   margin-right: var(--vm-card-mr, 16px);
   background: rgba(131, 150, 168, 0.09);
@@ -217,20 +378,18 @@ class JouleListening extends HTMLElement {
   -webkit-backdrop-filter: blur(10px);
   border-radius: 24px;
   box-shadow: 0px 2px 16px 0px rgba(93, 54, 255, 0.2);
-  /* blobs are clipped by .vm-bg's own overflow:hidden — no need here */
   padding: 32px 16px 26px;
   display: flex;
   flex-direction: column;
   gap: 24px;
   pointer-events: auto;
-  /* entry: slide down into position from slightly above */
   opacity: 0;
   transform: translateY(-10px);
   transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
               transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ── Center content: waveform + text — this is the "middle" of the card ── */
+/* ── Center content: waveform + transcript/text ─────────────────────────── */
 .vm-content {
   display: flex;
   flex-direction: column;
@@ -241,14 +400,13 @@ class JouleListening extends HTMLElement {
 }
 
 /* ── Animated waveform bars ─────────────────────────────────────────────── */
-/* 9 vertical bars, staggered scaleY animation — Figma: Lines Listening-3dp */
-/* These are the "sound waveform icon in the middle" from the task           */
 .vm-waveform {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   height: 56px;
+  flex-shrink: 0;
 }
 
 .vm-bar {
@@ -260,7 +418,7 @@ class JouleListening extends HTMLElement {
   flex-shrink: 0;
 }
 
-/* Staggered heights and delays — symmetric "mountain" waveform shape */
+/* Staggered heights and delays — symmetric mountain waveform shape */
 .vm-bar:nth-child(1) { height: 14px; animation-delay: 0.00s; }
 .vm-bar:nth-child(2) { height: 24px; animation-delay: 0.12s; }
 .vm-bar:nth-child(3) { height: 38px; animation-delay: 0.24s; }
@@ -276,12 +434,48 @@ class JouleListening extends HTMLElement {
   100% { transform: scaleY(1);   opacity: 1;   }
 }
 
-/* ── Text ────────────────────────────────────────────────────────────────── */
-/* Figma: gradient text from #5d36ff → #a100c2, font 72 Semibold            */
+/* ── Transcription display zone ─────────────────────────────────────────── */
+/* Hidden by default; shown (via JS) once first words are recognised.        */
+/* Replaces .vm-text — expands card upward as transcript grows.              */
+.vm-transcript {
+  display: none;  /* toggled to block by setTranscript() */
+  width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Custom scrollbar — thin + branded */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(93,54,255,0.3) transparent;
+  font-family: '72', var(--sapFontFamily, sans-serif);
+  font-size: 15px;
+  line-height: 1.6;
+  text-align: left;
+  padding: 4px 2px;
+  word-break: break-word;
+  /* fade-in handled inline by JS */
+}
+
+.vm-transcript::-webkit-scrollbar        { width: 4px; }
+.vm-transcript::-webkit-scrollbar-thumb  { background: rgba(93,54,255,0.35); border-radius: 4px; }
+.vm-transcript::-webkit-scrollbar-track  { background: transparent; }
+
+/* Confirmed — final, auto-corrected words */
+.vm-tc {
+  font-weight: 500;
+  color: #1a1a2e;
+}
+
+/* Interim — live partial result, ghost styling */
+.vm-ti {
+  font-weight: 400;
+  font-style: italic;
+  color: rgba(93, 54, 255, 0.60);
+}
+
+/* ── Static hint text ("Hi, I'm listening…") ───────────────────────────── */
 .vm-text {
   font-family: '72', var(--sapFontFamily, sans-serif);
   font-weight: 600;
-  font-style: normal;
   font-size: 14px;
   line-height: 1.5;
   text-align: center;
@@ -292,10 +486,32 @@ class JouleListening extends HTMLElement {
   color: transparent;
   margin: 0;
   flex-shrink: 0;
+  /* JS may set max-height + opacity for collapse animation */
+  transition: opacity 0.3s ease, max-height 0.3s ease;
+}
+
+/* ── Correction badge — briefly shown on verbal corrections ─────────────── */
+.vm-correction-badge {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  background: rgba(93,54,255,0.12);
+  border-radius: 100px;
+  padding: 4px 12px;
+  font-family: '72', var(--sapFontFamily, sans-serif);
+  font-size: 11px;
+  font-weight: 500;
+  color: #5d36ff;
+  flex-shrink: 0;
+  animation: vm-badge-in 0.25s ease;
+}
+.vm-correction-badge.visible { display: flex; }
+@keyframes vm-badge-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1);   }
 }
 
 /* ── Actions row ─────────────────────────────────────────────────────────── */
-/* Buttons spread to opposite corners of the card                            */
 .vm-actions {
   display: flex;
   align-items: center;
@@ -304,8 +520,6 @@ class JouleListening extends HTMLElement {
 }
 
 /* ── Action buttons — chrome pill ───────────────────────────────────────── */
-/* Figma: Microphone Button / Keyboard Button                                 */
-/* Materials/Chrome: rgba(255,255,255,0.85), backdrop-blur, rounded-full     */
 .vm-btn {
   display: flex;
   align-items: center;
@@ -327,21 +541,18 @@ class JouleListening extends HTMLElement {
 .vm-btn:hover  { background: rgba(255, 255, 255, 0.97); }
 .vm-btn:active { transform: scale(0.95); background: rgba(245, 246, 247, 0.97); }
 
-/* Microphone button: pulsing outer ring when active */
+/* Microphone button: pulsing outer rings when active */
 .vm-btn--mic::before {
   content: '';
-  position: absolute;
-  inset: -5px;
+  position: absolute; inset: -5px;
   border-radius: 100px;
   border: 2px solid rgba(93, 54, 255, 0.35);
   animation: vm-pulse 1.8s ease-in-out infinite;
   pointer-events: none;
 }
-
 .vm-btn--mic::after {
   content: '';
-  position: absolute;
-  inset: -10px;
+  position: absolute; inset: -10px;
   border-radius: 100px;
   border: 1.5px solid rgba(93, 54, 255, 0.15);
   animation: vm-pulse 1.8s ease-in-out infinite;
@@ -355,7 +566,6 @@ class JouleListening extends HTMLElement {
   100% { transform: scale(1);    opacity: 0.9; }
 }
 
-/* Icon wrapper inside button */
 .vm-btn-icon {
   display: flex;
   align-items: center;
@@ -367,7 +577,7 @@ class JouleListening extends HTMLElement {
 <!-- ── Voice Mode Card ──────────────────────────────────────────────────── -->
 <div class="vm-card" role="status" aria-live="polite" aria-label="Listening mode active">
 
-  <!-- Animated gradient background — inside the card so it only renders there -->
+  <!-- Animated gradient background -->
   <div class="vm-bg" aria-hidden="true">
     <div class="vm-blob vm-blob--1"></div>
     <div class="vm-blob vm-blob--2"></div>
@@ -375,7 +585,7 @@ class JouleListening extends HTMLElement {
     <div class="vm-noise"></div>
   </div>
 
-  <!-- Waveform + headline text -->
+  <!-- Waveform + transcript/hint text -->
   <div class="vm-content">
     <div class="vm-waveform" aria-hidden="true">
       <div class="vm-bar"></div>
@@ -388,23 +598,32 @@ class JouleListening extends HTMLElement {
       <div class="vm-bar"></div>
       <div class="vm-bar"></div>
     </div>
+
+    <!-- Live transcription zone — replaces vm-text once speech begins -->
+    <div class="vm-transcript" aria-live="polite" aria-atomic="false">
+      <span class="vm-tc"></span><span class="vm-ti"></span>
+    </div>
+
+    <!-- "Correction applied" badge -->
+    <div class="vm-correction-badge" aria-live="polite">
+      ✦ Correction applied
+    </div>
+
+    <!-- Static hint — fades out when first words arrive -->
     <p class="vm-text">Hi, I'm listening.<br>Talk to me naturally.</p>
   </div>
 
   <!-- Action buttons -->
   <div class="vm-actions">
-
-    <!-- Microphone — active / pulsing (Figma: Microphone Button 3058:1855037) -->
+    <!-- Microphone — active / pulsing -->
     <button class="vm-btn vm-btn--mic" data-act="mic" title="Microphone active" aria-label="Microphone active">
       <span class="vm-btn-icon">${ICON_MICROPHONE}</span>
     </button>
-
-    <!-- Close / dismiss (Figma: Keyboard Button 3058:1855045 — uses decline icon) -->
+    <!-- Close / dismiss -->
     <button class="vm-btn vm-btn--close" data-act="close" title="Stop listening" aria-label="Stop listening">
       <span class="vm-btn-icon">${ICON_DECLINE}</span>
     </button>
-
-  </div><!-- /vm-actions -->
+  </div>
 
 </div><!-- /vm-card -->
 `;
@@ -415,11 +634,19 @@ class JouleListening extends HTMLElement {
       this._emit('joule-listening-stop');
     });
 
-    /* Tapping the mic button also dismisses (stops listening) */
     this.shadowRoot.querySelector('[data-act="mic"]')?.addEventListener('click', () => {
       this.hide();
       this._emit('joule-listening-stop');
     });
+  }
+
+  /* ── Show correction badge briefly ─────────────────────────────────────── */
+  flashCorrectionBadge() {
+    const badge = this.shadowRoot?.querySelector('.vm-correction-badge');
+    if (!badge) return;
+    badge.classList.add('visible');
+    clearTimeout(this._badgeTimer);
+    this._badgeTimer = setTimeout(() => badge.classList.remove('visible'), 2000);
   }
 
   /* ── Helpers ────────────────────────────────────────────────────────────── */

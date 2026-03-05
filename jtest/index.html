@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WorkPad</title>
   <link rel="stylesheet" href="styles.css?v=2" />
-  <script type="module" src="../library/joule/index.js?v=4"></script>
+  <script type="module" src="../library/joule/index.js?v=7"></script>
 </head>
 <body>
 
   <div class="panel-wrapper">
     <joule-panel
-      background="/library/joule/assets/35389364ed5382f2923bdedaa0c96a0ce997bed2.svg">
+      background="/library/joule/assets/Effect Layer-Talk 1.svg">
 
       <!-- header slot — 3013:83762 -->
       <joule-header slot="header" title="Conversation Title"></joule-header>
@@ -34,6 +34,7 @@
       <joule-disclaimer slot="disclaimer"></joule-disclaimer>
 
     </joule-panel>
+    <joule-listening id="listening" style="display:none"></joule-listening>
   </div>
 
   <script type="module">
@@ -215,11 +216,13 @@
       customElements.whenDefined('joule-conversation-canvas'),
       customElements.whenDefined('joule-message-input'),
       customElements.whenDefined('joule-welcome'),
+      customElements.whenDefined('joule-listening'),
     ]);
 
-    const canvas  = document.getElementById('canvas');
-    const welcome = document.getElementById('welcome');
-    const input   = document.getElementById('input');
+    const canvas    = document.getElementById('canvas');
+    const welcome   = document.getElementById('welcome');
+    const input     = document.getElementById('input');
+    const listening = document.getElementById('listening');
 
     const panelEl = document.querySelector('joule-panel');
 
@@ -231,21 +234,23 @@
     function showCanvas() {
       if (welcome.style.display === 'none') return; // already in canvas mode
 
-      /* ── Step 1: FIRST — capture input rect in welcome position ── */
+      /* ── Step 1: FIRST — capture expanded rect in welcome ── */
       const firstRect = input.getBoundingClientRect();
 
       /* ── Step 2: Move input to panel footer slot ── */
       input.setAttribute('slot', 'message-input');
       panelEl.appendChild(input);
 
-      /* ── Step 3: LAST — capture input rect in footer position ── */
+      /* ── Step 3: LAST — capture natural footer rect BEFORE locking size ── */
       const lastRect = input.getBoundingClientRect();
 
-      /* ── Step 4: INVERT — translate input visually back to firstRect ── */
+      /* ── Step 4: INVERT — translate back & lock expanded height ── */
       const dy = firstRect.top  - lastRect.top;
       const dx = firstRect.left - lastRect.left;
 
       input.style.transition = 'none';
+      input.style.height     = firstRect.height + 'px';  // lock expanded height
+      input.style.overflow   = 'hidden';
       input.style.transform  = 'translate(' + dx + 'px, ' + dy + 'px)';
 
       /* Make footer background transparent during flight so panel bg shows */
@@ -254,30 +259,77 @@
         : null;
       if (footerEl) footerEl.style.background = 'transparent';
 
-      /* Force reflow so the inverted transform takes effect before animating */
+      /* Force reflow */
       void input.offsetHeight;
 
-      /* ── Step 5: PLAY — release to final position ── */
-      /* cubic-bezier(0.4, 0, 0.2, 1) = Material "Standard" easing — slow start,
-         fast middle, gentle ease-out for a buttery smooth landing              */
-      input.style.transition = 'transform 800ms cubic-bezier(0.4, 0, 0.2, 1)';
+      /* ── Step 5: PLAY — slide to footer (height stays expanded during flight) ── */
+      input.style.transition = 'transform 1000ms cubic-bezier(0.4, 0, 0.2, 1)';
       input.style.transform  = 'none';
 
-      /* Fade welcome out over the full duration simultaneously */
-      welcome.style.transition = 'opacity 800ms cubic-bezier(0.4, 0, 0.2, 1)';
+      /* Fade welcome out simultaneously */
+      welcome.style.transition = 'opacity 1000ms cubic-bezier(0.4, 0, 0.2, 1)';
       welcome.style.opacity    = '0';
 
-      /* After animation, swap content and clean up */
+      /* ── Step 6: After slide lands, collapse to natural footer height ── */
       setTimeout(() => {
         welcome.style.display    = 'none';
         welcome.style.opacity    = '';
         welcome.style.transition = '';
         canvas.style.display     = '';
-        input.style.transition   = '';
-        input.style.transform    = '';
-        if (footerEl) footerEl.style.background = '';
-      }, 800);
+
+        /* Measure natural (collapsed) height by briefly unlocking */
+        input.style.height = '';
+        const naturalH = input.getBoundingClientRect().height;
+        input.style.height = firstRect.height + 'px'; // re-lock for smooth start
+
+        void input.offsetHeight;
+
+        /* Animate collapse */
+        input.style.transition = 'height 300ms cubic-bezier(0.4, 0, 0.2, 1)';
+        input.style.height     = naturalH + 'px';
+
+        setTimeout(() => {
+          input.style.transition = '';
+          input.style.transform  = '';
+          input.style.height     = '';
+          input.style.overflow   = '';
+          if (footerEl) footerEl.style.background = '';
+        }, 300);
+      }, 1000);
     }
+
+    /* joule-voice — microphone button clicked → show listening overlay.
+       The overlay matches the input field's exact width and bottom edge,
+       clamped to the panel wrapper's boundaries so it stays within the app.
+       A requestAnimationFrame loop tracks position when the panel is dragged. */
+    let _trackRaf = null;
+    const wrapper = document.querySelector('.panel-wrapper');
+
+    document.addEventListener('joule-voice', () => {
+      const disclaimer = document.querySelector('joule-disclaimer');
+
+      /* Hide disclaimer — sits in the same footer area as the input */
+      if (disclaimer) disclaimer.style.display = 'none';
+
+      /* Show, clamped to panel wrapper bounds */
+      listening.show(input.getBoundingClientRect(), wrapper.getBoundingClientRect());
+
+      /* Continuously track position (follows panel on drag/resize) */
+      function track() {
+        if (listening.style.display === 'none') { _trackRaf = null; return; }
+        listening.updatePosition(input.getBoundingClientRect(), wrapper.getBoundingClientRect());
+        _trackRaf = requestAnimationFrame(track);
+      }
+      if (_trackRaf) cancelAnimationFrame(_trackRaf);
+      _trackRaf = requestAnimationFrame(track);
+    });
+
+    /* joule-listening-stop — stop tracking, restore disclaimer */
+    document.addEventListener('joule-listening-stop', () => {
+      if (_trackRaf) { cancelAnimationFrame(_trackRaf); _trackRaf = null; }
+      const disclaimer = document.querySelector('joule-disclaimer');
+      if (disclaimer) disclaimer.style.display = '';
+    });
 
     /* joule-suggest — chip click: populate input and send */
     welcome.addEventListener('joule-suggest', (e) => {

@@ -73,6 +73,7 @@ class JouleMessageInput extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this._value      = '';   // current editor text
     this._tagVisible = true; // ModeSwitch chip visible by default (Figma initial state)
+    /* expand/collapse disabled — always expanded */
     this._collapsed  = false;
   }
 
@@ -80,77 +81,46 @@ class JouleMessageInput extends HTMLElement {
     this._render();
     /* Auto-focus the editor on first mount so the user can type immediately. */
     requestAnimationFrame(() => this._editor()?.focus());
-    /* Collapse to single-row when user clicks outside this component.
-       composedPath() includes the host element for any click inside the
-       shadow root, so this correctly ignores clicks on the input itself. */
-    this._docClick = (e) => {
-      if (this._collapsed) return;
-      /* e.target is retargeted to the shadow host for any click inside
-         the shadow root — works even when shadow DOM was mutated during
-         the same event (composedPath() would be stale on detached nodes). */
-      if (e.target === this || this.contains(e.target)) return;
-      this.collapse();
-    };
-    document.addEventListener('click', this._docClick);
   }
 
-  disconnectedCallback() {
-    if (this._docClick) {
-      document.removeEventListener('click', this._docClick);
-      this._docClick = null;
-    }
-  }
+  disconnectedCallback() {}
 
   attributeChangedCallback() { this._render(); }
 
   /* ── public API ─────────────────────────────────────────────────────────── */
   get value() { return this._value; }
 
-  /**
-   * Collapse to compact footer bar — clears text, re-renders collapsed template.
-   * Called after send or when user clicks away from the canvas.
-   */
+  /** No-op — expand/collapse disabled; clears text and keeps expanded state. */
   collapse() {
     this._value      = '';
     this._tagVisible = true;
-    this._collapsed  = true;
-    const ph = this.getAttribute('placeholder') ?? 'Create with Joule';
-    const mn = this.getAttribute('mention')     ?? 'Space';
-    this.shadowRoot.innerHTML = this._tmplCollapsed(ph, mn);
-    this._bind();
-    this._emit('joule-resize', { collapsed: true, paddingBottom: 108 });
-  }
-
-  /** Expand to full input — re-renders expanded template and focuses editor. */
-  expand() {
-    this._collapsed = false;
     const ph = this.getAttribute('placeholder') ?? 'Create with Joule';
     const mn = this.getAttribute('mention')     ?? 'Space';
     this.shadowRoot.innerHTML = this._tmplExpanded(ph, mn);
     this._bind();
-    requestAnimationFrame(() => this._editor()?.focus());
-    this._emit('joule-resize', { collapsed: false, paddingBottom: 172 });
   }
 
-  /** Reset: re-render expanded and clear state */
+  /** No-op — input is always expanded. */
+  expand() {
+    const ed = this._editor();
+    if (ed) requestAnimationFrame(() => ed.focus());
+  }
+
+  /** Reset: clear text, re-render expanded. */
   reset() {
     this._value      = '';
     this._tagVisible = true;
-    this._collapsed  = false;
     const ph = this.getAttribute('placeholder') ?? 'Create with Joule';
     const mn = this.getAttribute('mention')     ?? 'Space';
     this.shadowRoot.innerHTML = this._tmplExpanded(ph, mn);
     this._bind();
-    this._emit('joule-resize', { collapsed: false, paddingBottom: 172 });
   }
 
-  /* ── render — uses collapsed or expanded template based on state ─────────── */
+  /* ── render — always uses expanded template ─────────────────────────────── */
   _render() {
     const ph = this.getAttribute('placeholder') ?? 'Create with Joule';
     const mn = this.getAttribute('mention')     ?? 'Space';
-    this.shadowRoot.innerHTML = this._collapsed
-      ? this._tmplCollapsed(ph, mn)
-      : this._tmplExpanded(ph, mn);
+    this.shadowRoot.innerHTML = this._tmplExpanded(ph, mn);
     this._bind();
   }
 
@@ -256,24 +226,18 @@ class JouleMessageInput extends HTMLElement {
   _bind() {
     const root = this.shadowRoot;
 
-    /* Expand to default when ANY inner element gains focus (click or Tab).
-       Uses requestAnimationFrame so button click handlers fire on the
-       current collapsed DOM before the re-render replaces it. */
-    root.addEventListener('focusin', () => {
-      if (this._collapsed) requestAnimationFrame(() => this.expand());
-    }, { once: true });
-
-    /* expand on click/keyboard in collapsed placeholder area */
-    root.querySelector('[data-act="expand"]')?.addEventListener('click',   () => this.expand());
-    root.querySelector('[data-act="expand"]')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.expand(); }
-    });
-
     /* editor */
     const ed = this._editor();
     if (ed) {
       /* restore text if any */
       if (this._value) { ed.textContent = this._value; this._syncSend(); }
+
+      ed.addEventListener('paste', (e) => {
+        e.preventDefault();
+        /* Strip all HTML/formatting — insert as plain text only */
+        const plain = (e.clipboardData || window.clipboardData).getData('text/plain');
+        document.execCommand('insertText', false, plain);
+      });
 
       ed.addEventListener('input', () => {
         this._value = ed.textContent.trim();
@@ -339,8 +303,13 @@ class JouleMessageInput extends HTMLElement {
 
   _doSend() {
     const mn = this.getAttribute('mention') ?? 'Space';
-    this._emit('joule-send', { text: this._value, mention: mn });
-    this.collapse();
+    const text = this._value;
+    /* clear text before emitting so the editor is ready for the next input */
+    this._value = '';
+    const ed = this._editor();
+    if (ed) { ed.textContent = ''; }
+    this._syncSend();
+    this._emit('joule-send', { text, mention: mn });
   }
 
   _emit(name, detail = {}) {

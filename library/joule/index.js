@@ -14,7 +14,8 @@
 import './joule-panel.js?v=2';
 import './joule-header.js?v=3';
 import './joule-conversation-canvas.js?v=7';
-import './joule-message-input.js?v=4';
+import './joule-message-input.js?v=5';
 import './joule-disclaimer.js?v=2';
 import './joule-response-actions.js?v=2';
 import './joule-welcome.js?v=1';
+import './joule-listening.js?v=2';

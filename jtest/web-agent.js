@@ -409,7 +409,7 @@ function buildContext(query, instant, htmlResults, pageContents) {
 /* ═══════════════════════════════════════════════════════════════════════════
    5.  Call HAI relay (Claude)
    ═════════════════════════════════════════════════════════════════════════ */
-function callHAI(userText, searchCtx, apiKey, model) {
+function callHAI(userText, searchCtx, apiKey, model, history = []) {
   const MATH_RULE = '\nMATH FORMATTING: For ALL mathematical expressions, formulas, and equations, ' +
     'always use LaTeX notation — $$...$$ for display/block equations (on their own line) and $...$ for ' +
     'inline math within text. Use proper LaTeX commands: \\frac, \\sum, \\int, \\partial, \\nabla, ' +
@@ -433,11 +433,22 @@ function callHAI(userText, searchCtx, apiKey, model) {
     : 'You are Joule, an AI assistant. Be helpful, concise, and professional. ' +
       'Use markdown formatting where appropriate.' + MATH_RULE;
 
+  /* Build messages: prepend prior turns then current query with search context.
+     Cap history at 20 messages (10 turns) to avoid exceeding token limits.   */
+  const currentContent = searchCtx
+    ? `${searchCtx}\n\nBased on the above search results, please answer: ${userText}`
+    : userText;
+
+  const messages = [
+    ...history.slice(-20),
+    { role: 'user', content: currentContent },
+  ];
+
   const payload = JSON.stringify({
     model:      model || DEFAULT_MODEL,
     max_tokens: 3000,
     system,
-    messages: [{ role: 'user', content: userText }],
+    messages,
   });
 
   return new Promise((resolve, reject) => {
@@ -488,7 +499,7 @@ const server = http.createServer((req, res) => {
     try { body = JSON.parse(Buffer.concat(chunks).toString()); }
     catch { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'invalid JSON'})); return; }
 
-    const { userText, apiKey, model } = body;
+    const { userText, apiKey, model, history = [] } = body;
     if (!userText || typeof userText !== 'string') {
       res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'userText required'})); return;
     }
@@ -581,7 +592,7 @@ const server = http.createServer((req, res) => {
         searchCtx = directApiData + (searchCtx ? '\n\n' + searchCtx : '');
       }
 
-      const answer = await callHAI(userText, searchCtx, apiKey, model);
+      const answer = await callHAI(userText, searchCtx, apiKey, model, history);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ text: answer, searched: hasContent }));
 

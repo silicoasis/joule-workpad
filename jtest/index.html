@@ -191,7 +191,7 @@
                   'inline math within text. Use proper LaTeX commands such as \\frac, \\sum, \\int, \\partial, ' +
                   '\\nabla, \\sqrt, \\vec, \\hat, \\cdot, \\times, \\mu, \\nu, \\alpha, \\beta, \\gamma, ' +
                   '\\hbar, \\mathbf, \\mathrm, etc. NEVER write equations as plain text.',
-          messages: [{ role: 'user', content: userText }],
+          messages: [..._history.slice(), { role: 'user', content: userText }],
         }),
         signal: AbortSignal.timeout(20000),
       });
@@ -202,6 +202,15 @@
       return text;
     }
 
+    /* ── Conversation history (last 10 turns = 20 messages) ────────────── */
+    const _history = [];
+
+    function _pushHistory(role, content) {
+      _history.push({ role, content });
+      /* Keep only last 20 messages (10 turns) */
+      if (_history.length > 20) _history.splice(0, _history.length - 20);
+    }
+
     /**
      * Call the web agent (DuckDuckGo search → HAI with enriched context).
      * Falls back to callHAI() if the agent is unavailable.
@@ -210,7 +219,7 @@
       const res = await fetch(HAI.agentUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userText, apiKey: HAI.apiKey, model: HAI.model }),
+        body: JSON.stringify({ userText, apiKey: HAI.apiKey, model: HAI.model, history: _history.slice() }),
         signal: AbortSignal.timeout(35000), // agent needs more time (search + LLM)
       });
       if (!res.ok) throw new Error(`agent ${res.status}`);
@@ -1025,18 +1034,21 @@
 
       } else {
         /* Try web agent first (DuckDuckGo + HAI), fall back to direct HAI, then mock */
+        _pushHistory('user', text); // record user turn before sending
+        let responseText = MOCK_TEXT_LINES.join('\n\n');
         try {
-          const raw = await callAgent(text);
-          await canvas.streamMarkdown(raw);
+          responseText = await callAgent(text);
+          await canvas.streamMarkdown(responseText);
         } catch (agentErr) {
           try {
-            const raw = await callHAI(text);
-            await canvas.streamMarkdown(raw);
+            responseText = await callHAI(text);
+            await canvas.streamMarkdown(responseText);
           } catch (_) {
             await new Promise(r => setTimeout(r, 1200));
-            await canvas.streamMarkdown(MOCK_TEXT_LINES.join('\n\n'));
+            await canvas.streamMarkdown(responseText);
           }
         }
+        _pushHistory('assistant', responseText); // record assistant turn
       }
     });
   </script>
